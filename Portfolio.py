@@ -589,8 +589,6 @@ class Algo(QObject):
     def __init__(self):
         super().__init__()
         self.algoLists={'Algo1':False,'Algo2':False}
-        self.opos_df=None
-        self.oord_df=None
 
     def sendAlgoNames(self):
         self.listOfAlgo.emit(list(self.algoLists.keys()))
@@ -605,6 +603,9 @@ class Algo(QObject):
             return
         #prevent reordering till last order is filled or rejected
         if portfolio.stockOrdered.get(symbol) is not None:
+            return
+        # not enough history
+        if portfolio.stockHistory.get(symbol) is not None:
             return
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
@@ -631,6 +632,9 @@ class Algo(QObject):
             return
         #prevent reordering till last order is filled or rejected
         if portfolio.stockOrdered.get(symbol) is not None:
+            return
+        # not enough history
+        if portfolio.stockHistory.get(symbol) is not None:
             return
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
