@@ -446,14 +446,16 @@ class WatchListSelector(QObject):
         @t1.asyncThread('watchlist1', 600)
         async def scanner1():
             self.wl1 = HighOfTheDayScanner()
-            await dataStream.subscribe(self.wl1.getSymbols())
+            if self.wl4 is not None:
+                await dataStream.subscribe(self.wl1.getSymbols())
 
         #This scanner watchlist runs every 3 minute
         t1 = Threader()
         @t1.asyncThread('watchlist1', 300)
         async def scanner1():
             self.wl4 = HighOfTheDayScanner()
-            await dataStream.subscribe(self.wl1.getSymbols())
+            if self.wl4 is not None:
+                await dataStream.subscribe(self.wl1.getSymbols())
 
         #this watchlist is a static list of symbol, you change code to laod from a file
         #actually running this in thread to call async subcribe method
