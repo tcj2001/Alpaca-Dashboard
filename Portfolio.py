@@ -639,6 +639,7 @@ class Algo(QObject):
         studyHistory = study.getHistory()
         close = studyHistory['close'][-1]
         ema = studyHistory['EMA9'][-1]
+        qty=0
         if portfolio.stockPosition.get(symbol) is not None:
             qty = portfolio.stockPosition.get(symbol)
         if close > ema:
