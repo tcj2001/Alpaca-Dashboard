@@ -446,7 +446,7 @@ class WatchListSelector(QObject):
         @t1.asyncThread('watchlist1', 600)
         async def scanner1():
             self.wl1 = HighOfTheDayScanner()
-            if self.wl4 is not None:
+            if self.wl1 is not None:
                 await dataStream.subscribe(self.wl1.getSymbols())
 
         #This scanner watchlist runs every 3 minute
@@ -455,7 +455,7 @@ class WatchListSelector(QObject):
         async def scanner1():
             self.wl4 = HighOfTheDayScanner()
             if self.wl4 is not None:
-                await dataStream.subscribe(self.wl1.getSymbols())
+                await dataStream.subscribe(self.wl4.getSymbols())
 
         #this watchlist is a static list of symbol, you change code to laod from a file
         #actually running this in thread to call async subcribe method
@@ -605,7 +605,7 @@ class Algo(QObject):
         if portfolio.stockOrdered.get(symbol) is not None:
             return
         # not enough history
-        if portfolio.stockHistory.get(symbol) is not None:
+        if portfolio.stockHistory.get(symbol) is None:
             return
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
@@ -634,7 +634,7 @@ class Algo(QObject):
         if portfolio.stockOrdered.get(symbol) is not None:
             return
         # not enough history
-        if portfolio.stockHistory.get(symbol) is not None:
+        if portfolio.stockHistory.get(symbol) is None:
             return
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
