@@ -31,7 +31,7 @@ local_timezone = pytz.timezone('US/Eastern') # get pytz tzinfo
 class Portfolio(QObject):
 
     sendMessage=Signal(str)
-    sendBuyingPower = Signal(float)
+    sendBuyingPower = Signal(float,float)
     openOrderLoaded = Signal(df.DataFrame)
     closedOrderLoaded = Signal(df.DataFrame)
     positionsLoaded = Signal(df.DataFrame)
@@ -102,6 +102,15 @@ class Portfolio(QObject):
             self.cord_df=None
             return None
         return cord_df
+
+    def lastOrderAt(self,cord_df):
+        try:
+            lord_df=cord_df[['symbol', 'filled_at']]
+            lord_df.set_index('symbol',inplace=True)
+            lord_s = lord_df.groupby(['symbol'])['filled_at'].first()
+            return lord_s
+        except Exception as e:
+            return None
 
     def lastOrder(self,cord_df):
         try:
@@ -242,11 +251,12 @@ class Portfolio(QObject):
     def sendPortFolio(self):
         self.oord_df = self.loadOpenOrders()
         self.cord_df = self.loadClosedOrders()
-        self.lord_df = self.lastOrder(self.cord_df)
+        self.lord_df = self.lastOrderAt(self.cord_df)
         self.opos_df = self.loadOpenPosition(self.lord_df)
 
         self.openOrderLoaded.emit(self.oord_df)
-        self.sendBuyingPower.emit(float(self.api.get_account().buying_power))
+        self.account=self.api.get_account()
+        self.sendBuyingPower.emit(float(self.account.buying_power),float(self.account.last_equity)-float(self.account.equity))
 
 #handles polygon data
 class StreamingData(QObject):
@@ -258,6 +268,7 @@ class StreamingData(QObject):
     sendMTick = Signal(str, dict)
     sendOrder=Signal(str,dict)
     sendHistory=Signal(str,df.DataFrame)
+    sendAccountData = Signal(float,float)
 
 
     def __init__(self,key_id,secret_key,base_url):
@@ -275,7 +286,12 @@ class StreamingData(QObject):
         async def on_status_messages(conn, channel, data):
             print(data)
 
-        # Use trade updates to keep track of our portfolio
+        @conn.on('account_updates')
+        async def on_account_updates(conn, channel, data):
+            self.sendAccountData.emit(float(data['buying_power']),float(data['last_equity'])-float(data['equity']))
+
+            print(data)
+
         @conn.on('trade_updates')
         async def on_trade_updates(conn, channel, data):
             self.sendMessage.emit("{} order for {} executed".format(data.order['side'], data.order['symbol']))
@@ -622,7 +638,7 @@ class Algo(QObject):
                 portfolio.stockOrdered[symbol]=True
                 self.buyRequest.emit(symbol, 1, close,'Algo1')
         if close < last3barmin:
-            if qty >= 0:
+            if qty > 0:
                 portfolio.stockOrdered[symbol] = True
                 self.sellRequest.emit(symbol, 1, close,'Algo1')
 
@@ -651,7 +667,7 @@ class Algo(QObject):
                 portfolio.stockOrdered[symbol] = True
                 self.buyRequest.emit(symbol, 1, close, 'Algo2')
         if close < ema:
-            if qty >= 0:
+            if qty > 0:
                 portfolio.stockOrdered[symbol] = True
                 self.sellRequest.emit(symbol, 1, close, 'Algo2')
 
@@ -765,7 +781,7 @@ class MainWindow(QMainWindow):
         lw2 = QWidget()
         lg2 = QGridLayout()
         lb2=QLabel('Positions')
-        self.openPositions = Positions(['Symbol','Qty','last','AveragePrice','Profit','FilledOn'])
+        self.openPositions = Positions(['Symbol','Qty','last','AveragePrice','Profit','FilledAt'])
         lg2.addWidget(lb2,0,0,1,1)
         lg2.addWidget(self.openPositions,1,0,1,1)
         lw2.setLayout(lg2)
@@ -805,9 +821,10 @@ class MainWindow(QMainWindow):
         rw.setLayout(rg)
         hs.addWidget(rw)
 
-    def updateBuyingPower(self,bp):
+    def displayAccountData(self,bp,pf):
         self.buyingPower=bp
-        self.setWindowTitle("Alpaca Portfolio!......... BuyingPower: {}".format(self.buyingPower))
+        self.todaysProfit=pf
+        self.setWindowTitle("Alpaca Portfolio!...BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower,self.todaysProfit))
 
     def statusMessage(self,msg):
         self.statusline.setText(msg)
@@ -1005,6 +1022,7 @@ class Positions(QTableView):
         self.qSortFilterProxyModel.setSourceModel(self.model)
         self.qSortFilterProxyModel.setFilterKeyColumn(0)
         self.qSortFilterProxyModel.setFilterCaseSensitivity(Qt.CaseSensitive)
+        self.setColumnWidth(5, 200)
 
     def addRow(self,columns):
         items = []
@@ -1046,7 +1064,7 @@ class Positions(QTableView):
         self.model.removeRows(0,self.model.rowCount())
         if opos_df  is not None:
             for row in opos_df.iterrows():
-                p = self.addRow([row[1]['symbol'], str(int(row[1]['qty'])).rjust(5), str(row[1]['current_price']), str(round(float(row[1]['avg_entry_price']),2)),'{:.2f}'.format(row[1]['profit']),row[1]['filled_on']])
+                p = self.addRow([row[1]['symbol'], str(int(row[1]['qty'])).rjust(5), str(row[1]['current_price']), str(round(float(row[1]['avg_entry_price']),2)),'{:.2f}'.format(row[1]['profit']),row[1]['filled_at'].strftime('%Y-%m-%d %H:%M:%S')])
             self.resizeRowsToContents()
             #self.resizeColumnsToContents()
 
@@ -1535,10 +1553,11 @@ if __name__ == "__main__":
     window.openOrders.requestStockData.connect(portfolio.sendStockData)
     portfolio.stockDataReady.connect(window.chartview.loadChart)
 
-    portfolio.sendBuyingPower.connect(window.updateBuyingPower)
+    portfolio.sendBuyingPower.connect(window.displayAccountData)
     portfolio.sendMessage.connect(window.statusMessage)
 
     #update GUI with realtime tick and quote
+    dataStream.sendAccountData.connect(window.displayAccountData)
     dataStream.sendQuote.connect(window.watchLists.updateQuote, Qt.QueuedConnection)
     dataStream.sendTick.connect(window.watchLists.updateTick, Qt.QueuedConnection)
     dataStream.sendTick.connect(window.openPositions.updateTick, Qt.QueuedConnection)
