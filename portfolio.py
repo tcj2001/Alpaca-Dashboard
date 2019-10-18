@@ -849,6 +849,7 @@ class MainWindow(QMainWindow):
 
     def showsym(self):
         self.requestStockData.emit(self.ql51.text().upper(), self.timeFrame.currentText())
+        self.timeFrame.symbol = self.ql51.text().upper()
         self.ql51.setText('')
 
     def displayAccountData(self,bp,pf):
