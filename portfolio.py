@@ -14,6 +14,7 @@ import asyncio
 import threading
 import pytz  # $ pip install pytz
 import talib
+import logging
 
 #GUI
 from PySide2.QtGui import *
@@ -59,7 +60,7 @@ class Portfolio(QObject):
                 opos_df['profit'] = round(opos_df['unrealized_plpc'].astype(float) * 100, 2)
                 self.opos_df=opos_df
                 if self.opos_df is not None and lord_df is not None:
-                    self.opos_df = self.opos_df.merge(lord_df, on='symbol')
+                    self.opos_df = self.opos_df.merge(lord_df, how='left', on='symbol')
                 self.positionsLoaded.emit(self.opos_df)
             if symbol!='':
                 return self.opos_df[self.opos_df['symbol'] == symbol]
@@ -96,7 +97,7 @@ class Portfolio(QObject):
                 self.cord_df=cord_df
             if symbol!='':
                 cord_df1 = self.cord_df[self.cord_df['symbol'] == symbol]
-                self.closedOrderLoaded.emit(cord_df1)
+                #self.closedOrderLoaded.emit(cord_df1)
                 return cord_df1
         except Exception as e:
             self.cord_df=None
@@ -123,18 +124,28 @@ class Portfolio(QObject):
 
     def allSymbols(self):
         self.symbols=[]
-        if self.oord_df is not None:
-            self.symbols = list(set(self.symbols) | set(self.oord_df['symbol']))
-        if self.opos_df is not None:
-            self.symbols = list(set(self.symbols) | set(self.opos_df['symbol']))
-        if self.cord_df is not None:
-            self.symbols = list(set(self.symbols) | set(self.cord_df['symbol']))
+        try:
+            if self.oord_df is not None:
+                self.symbols = list(set(self.symbols) | set(self.oord_df['symbol']))
+        except Exception as e:
+            pass
+        try:
+            if self.opos_df is not None:
+                self.symbols = list(set(self.symbols) | set(self.opos_df['symbol']))
+        except Exception as e:
+            pass
+        try:
+            if self.cord_df is not None:
+                self.symbols = list(set(self.symbols) | set(self.cord_df['symbol']))
+        except Exception as e:
+            pass
         return self.symbols
 
     def getDailyHistory(self, symbol, multiplier, timeframe, fromdate, todate):
         return self.api.polygon.historic_agg_v2(symbol, multiplier, timeframe, fromdate, todate).df
 
     def getMinutesHistory(self, symbol, minutes):
+        print('Fetching ...{} minutes history for {}'.format(minutes,symbol))
         return self.api.polygon.historic_agg(size="minute", symbol=symbol, limit=minutes).df
 
     def buy(self,symbol,qty,price,tag=None):
@@ -254,9 +265,11 @@ class Portfolio(QObject):
         self.lord_df = self.lastOrderAt(self.cord_df)
         self.opos_df = self.loadOpenPosition(self.lord_df)
 
+        self.positionsLoaded.emit(self.opos_df)
         self.openOrderLoaded.emit(self.oord_df)
-        self.account=self.api.get_account()
-        self.sendBuyingPower.emit(float(self.account.buying_power),float(self.account.last_equity)-float(self.account.equity))
+        self.closedOrderLoaded.emit(self.cord_df)
+        #self.account=self.api.get_account()
+        #self.sendBuyingPower.emit(float(self.account.buying_power),float(self.account.last_equity)-float(self.account.equity))
 
 #handles polygon data
 class StreamingData(QObject):
@@ -289,7 +302,6 @@ class StreamingData(QObject):
         @conn.on('account_updates')
         async def on_account_updates(conn, channel, data):
             self.sendAccountData.emit(float(data['buying_power']),float(data['last_equity'])-float(data['equity']))
-
             print(data)
 
         @conn.on('trade_updates')
@@ -313,10 +325,11 @@ class StreamingData(QObject):
         async def on_quote_messages(conn, channel, data):
             self.sendQuote.emit(data.symbol,data)
 
+        conn.loop.run_until_complete(self.conn.subscribe(['account_updates','trade_updates']))
 
 
     def getChannels(self,symbolList):
-        channelList=['trade_updates']
+        channelList=[]
         for symbol in symbolList:
             symbol_channels = ['A.{}'.format(symbol), 'AM.{}'.format(symbol), 'Q.{}'.format(symbol), 'T.{}'.format(symbol)]
             channelList += symbol_channels
@@ -324,9 +337,9 @@ class StreamingData(QObject):
 
     async def subscribe(self,symbols):
         if symbols is not None:
-            for symbol in symbols:
-                history=portfolio.getMinutesHistory(symbol, 100)
-                self.sendHistory.emit(symbol,history)
+            #for symbol in symbols:
+                #history=portfolio.getMinutesHistory(symbol, 100)
+                #self.sendHistory.emit(symbol,history)
             channels=self.getChannels(symbols)
             await self.conn.subscribe(channels)
 
@@ -459,7 +472,7 @@ class WatchListSelector(QObject):
 
         #This scanner watchlist runs every 10 minute
         t1 = Threader()
-        @t1.asyncThread('watchlist1', 600)
+        @t1.asyncThread('watchlist1', 60000000)
         async def scanner1():
             self.wl1 = HighOfTheDayScanner()
             if self.wl1 is not None:
@@ -474,21 +487,12 @@ class WatchListSelector(QObject):
                 await dataStream.subscribe(self.wl4.getSymbols())
 
         #this watchlist is a static list of symbol, you change code to laod from a file
-        #actually running this in thread to call async subcribe method
-        t2 = Threader()
-        @t2.asyncThread('watchlist2')
-        async def watchlist2():
-            self.wl2 = WatchList(['TSLA', 'FB', 'AAPL', 'GOOGL', 'NFLX'])
-            await dataStream.subscribe(self.wl2.getSymbols())
+        self.wl2 = WatchList(['TSLA', 'FB', 'AAPL', 'GOOGL', 'NFLX'])
+        dataStream.conn.loop.run_until_complete(dataStream.conn.subscribe(dataStream.getChannels(self.wl2.getSymbols())))
 
-
-        #this watchlist is a another static list of symbol, you change code to laod from a file
-        #actually running this in thread to call async subcribe method
-        t3 = Threader()
-        @t3.asyncThread('watchlist3')
-        async def watchlist3():
-            self.wl3 = WatchList(['BABA', 'BIDU', 'WB'])
-            await dataStream.subscribe(self.wl3.getSymbols())
+        # this watchlist is a static list of symbol, you change code to laod from a file
+        self.wl3 = WatchList(['BABA', 'BIDU', 'WB'])
+        dataStream.conn.loop.run_until_complete(dataStream.conn.subscribe(dataStream.getChannels(self.wl3.getSymbols())))
 
 
     def sendWatchListNames(self):
@@ -507,6 +511,7 @@ class WatchListSelector(QObject):
         if id=='TopEmaCount':
             if self.wl4 is not None:
                 self.watchlistSelected.emit(self.wl4.wl_df)
+
 # generic watchlist class
 class WatchList(QObject):
     def __init__(self, symbols):
@@ -614,7 +619,7 @@ class Algo(QObject):
         pass
 
     def algo1(self,symbol,data):
-        #return if algo is not checked
+       #return if algo is not checked
         if not self.algoLists['Algo1']:
             return
         #prevent reordering till last order is filled or rejected
@@ -623,6 +628,7 @@ class Algo(QObject):
         # not enough history
         if portfolio.stockHistory.get(symbol) is None:
             return
+        print('algo1 ',symbol)
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
         study = Study(portfolio.stockHistory[symbol].resample('5T').first().fillna(method='ffill'))
@@ -637,6 +643,7 @@ class Algo(QObject):
             if qty <= 0:
                 portfolio.stockOrdered[symbol]=True
                 self.buyRequest.emit(symbol, 1, close,'Algo1')
+
         if close < last3barmin:
             if qty > 0:
                 portfolio.stockOrdered[symbol] = True
@@ -678,6 +685,16 @@ class Threader(object):
         self.task={}
         self.loop = asyncio.new_event_loop()
 
+    #timer thread
+    def timer(func,seconds):
+        t = threading.Timer(seconds, func)
+        t.start()
+
+    # asyncio looper function for a thread
+    def asyncioLooper(loop):
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
     def run_in_thread(fn):
         def run(*k, **kw):
             threading.Thread(target=fn, args=k, kwargs=kw).start()
@@ -687,7 +704,7 @@ class Threader(object):
         def scheduler(fcn):
             self.func[id]=fcn
             self.task[id] = asyncio.ensure_future(self.repeat(id,period,st, fcn, *args, **kwargs),loop=self.loop)
-            self.start()
+            self.start(id)
         return scheduler
 
     async def repeat(self,id,interval,st, func, *args, **kwargs):
@@ -725,8 +742,9 @@ class Threader(object):
     def run(self):
         self.loop.run_until_complete(self.looper())
 
-    def start(self):
+    def start(self,id):
         t = threading.Thread(target=self.run)
+        t.setName(id)
         t.start()
 
 
@@ -824,9 +842,10 @@ class MainWindow(QMainWindow):
     def displayAccountData(self,bp,pf):
         self.buyingPower=bp
         self.todaysProfit=pf
-        self.setWindowTitle("Alpaca Portfolio!...BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower,self.todaysProfit))
+        self.setWindowTitle("Alpaca Portfolio!.....  BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower,self.todaysProfit))
 
     def statusMessage(self,msg):
+        print(msg)
         self.statusline.setText(msg)
 
 #watch list combo
@@ -1064,7 +1083,12 @@ class Positions(QTableView):
         self.model.removeRows(0,self.model.rowCount())
         if opos_df  is not None:
             for row in opos_df.iterrows():
-                p = self.addRow([row[1]['symbol'], str(int(row[1]['qty'])).rjust(5), str(row[1]['current_price']), str(round(float(row[1]['avg_entry_price']),2)),'{:.2f}'.format(row[1]['profit']),row[1]['filled_at'].strftime('%Y-%m-%d %H:%M:%S')])
+                filledat=''
+                try:
+                    filledat=row[1]['filled_at'].strftime('%Y-%m-%d %H:%M:%S')
+                except Exception as e:
+                    pass
+                p = self.addRow([row[1]['symbol'], str(int(row[1]['qty'])).rjust(5), str(row[1]['current_price']), str(round(float(row[1]['avg_entry_price']),2)),'{:.2f}'.format(row[1]['profit']),filledat])
             self.resizeRowsToContents()
             #self.resizeColumnsToContents()
 
@@ -1272,9 +1296,9 @@ class ChartView(QtCharts.QChartView):
         if self.chart().title()!="":
             super().paintEvent(event)
             qp = QPainter(self.viewport())
-            qp.begin(self)
+            #qp.begin(self)
             self.crossHair(event, qp)
-            qp.end()
+            #qp.end()
 
     def crossHair(self,event,qp):
         qp.setPen(QColor(Qt.lightGray))
@@ -1490,6 +1514,11 @@ class Chart(QtCharts.QChart):
 if __name__ == "__main__":
 
     # region Intilialize
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                        datefmt='%m-%d %H:%M',
+                        filename='portfolio.log',
+                        filemode='w')
 
     # get keys form environment variable
     try:
@@ -1523,6 +1552,7 @@ if __name__ == "__main__":
     dataStream.moveToThread(dataStreamThread)
     dataStreamThread.start()
 
+
     #watchlist selector
     watchListSelector=WatchListSelector()
 
@@ -1539,30 +1569,47 @@ if __name__ == "__main__":
 
     # connect Logic and GUI signals
     #fill GUI component when data is updated
-    portfolio.positionsLoaded.connect(window.openPositions.loadData)
-    portfolio.openOrderLoaded.connect(window.openOrders.loadData)
-    portfolio.closedOrderLoaded.connect(window.closedOrders.loadData)
+    try:
+        portfolio.positionsLoaded.connect(window.openPositions.loadData, Qt.QueuedConnection)
+        portfolio.openOrderLoaded.connect(window.openOrders.loadData, Qt.QueuedConnection)
+        portfolio.closedOrderLoaded.connect(window.closedOrders.loadData, Qt.QueuedConnection)
+        portfolio.stockDataReady.connect(window.chartview.loadChart, Qt.QueuedConnection)
+        portfolio.sendBuyingPower.connect(window.displayAccountData, Qt.QueuedConnection)
+        portfolio.sendMessage.connect(window.statusMessage, Qt.QueuedConnection)
 
-    #when clicked on a symbol on watchlist, position and closed orders or when timeframe changed
-    window.watchLists.requestStockData.connect(portfolio.sendStockData)
-    window.timeFrame.requestStockData.connect(portfolio.sendStockData)
+        #when clicked on a symbol on watchlist, position and closed orders or when timeframe changed
+        window.watchLists.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
+        window.timeFrame.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
+        window.openPositions.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
+        window.openOrders.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
 
+        #update GUI with realtime tick and quote
+        dataStream.sendAccountData.connect(window.displayAccountData, Qt.QueuedConnection)
+        dataStream.sendQuote.connect(window.watchLists.updateQuote, Qt.QueuedConnection)
+        dataStream.sendTick.connect(window.watchLists.updateTick, Qt.QueuedConnection)
+        dataStream.sendTick.connect(window.openPositions.updateTick, Qt.QueuedConnection)
+        dataStream.sendTick.connect(window.chartview.updateTick, Qt.QueuedConnection)
+        dataStream.sendMTick.connect(window.chartview.updateTick, Qt.QueuedConnection)
+        dataStream.sendMessage.connect(window.statusMessage, Qt.QueuedConnection)
 
-    window.openPositions.requestStockData.connect(portfolio.sendStockData)
+        #send the list of watchlist names to gui
+        watchListSelector.listOfWatchList.connect(window.watchListcombo.loadData, Qt.QueuedConnection)
+        #when a watchlist combo selected load the watchlist sysmbols
+        window.watchListcombo.watchListComboSelected.connect(watchListSelector.selectWatchList, Qt.QueuedConnection)
+        # when a watchlist selected load the watchlist sysmbols
+        watchListSelector.watchlistSelected.connect(window.watchLists.loadData, Qt.QueuedConnection)
 
-    window.openOrders.requestStockData.connect(portfolio.sendStockData)
-    portfolio.stockDataReady.connect(window.chartview.loadChart)
+        #send the names of the algo to gui
+        algo.listOfAlgo.connect(window.algoCombo.loadData, Qt.QueuedConnection)
 
-    portfolio.sendBuyingPower.connect(window.displayAccountData)
-    portfolio.sendMessage.connect(window.statusMessage)
+        window.algoCombo.runAlgo.connect(algo.selectAlgo, Qt.QueuedConnection)
+        window.openOrders.requestCancel.connect(portfolio.cancel, Qt.QueuedConnection)
+        window.openOrders.requestCancelAll.connect(portfolio.cancelAll, Qt.QueuedConnection)
 
-    #update GUI with realtime tick and quote
-    dataStream.sendAccountData.connect(window.displayAccountData)
-    dataStream.sendQuote.connect(window.watchLists.updateQuote, Qt.QueuedConnection)
-    dataStream.sendTick.connect(window.watchLists.updateTick, Qt.QueuedConnection)
-    dataStream.sendTick.connect(window.openPositions.updateTick, Qt.QueuedConnection)
-    dataStream.sendTick.connect(window.chartview.updateTick, Qt.QueuedConnection)
-    dataStream.sendMTick.connect(window.chartview.updateTick, Qt.QueuedConnection)
+        window.buySellDailog.sellRequest.connect(portfolio.sell, Qt.QueuedConnection)
+        window.buySellDailog.buyRequest.connect(portfolio.buy, Qt.QueuedConnection)
+    except Exception as e:
+        pass
 
     #build realtime history
     dataStream.sendTick.connect(portfolio.saveTicks, Qt.QueuedConnection)
@@ -1573,34 +1620,17 @@ if __name__ == "__main__":
     dataStream.sendTick.connect(algo.algo2, Qt.QueuedConnection)
 
     #when a order placed or executed
-    dataStream.sendOrder.connect(portfolio.sendPortFolio)
+    dataStream.sendOrder.connect(portfolio.sendPortFolio, Qt.QueuedConnection)
 
     #when symbols are subcribed get the initial history that will used to build with realtime data
-    dataStream.sendHistory.connect(portfolio.saveHistory)
-
-    #send the list of watchlist names to gui
-    watchListSelector.listOfWatchList.connect(window.watchListcombo.loadData)
-    #when a watchlist combo selected load the watchlist sysmbols
-    window.watchListcombo.watchListComboSelected.connect(watchListSelector.selectWatchList)
-    # when a watchlist selected load the watchlist sysmbols
-    watchListSelector.watchlistSelected.connect(window.watchLists.loadData)
-
-
-    #send the names of the algo to gui
-    algo.listOfAlgo.connect(window.algoCombo.loadData)
+    dataStream.sendHistory.connect(portfolio.saveHistory, Qt.QueuedConnection)
 
     #when a buy or sell is triggered by the algo
-    algo.sellRequest.connect(portfolio.sell)
-    algo.buyRequest.connect(portfolio.buy)
+    algo.sellRequest.connect(portfolio.sell, Qt.QueuedConnection)
+    algo.buyRequest.connect(portfolio.buy, Qt.QueuedConnection)
 
 
 
-    window.algoCombo.runAlgo.connect(algo.selectAlgo)
-    window.openOrders.requestCancel.connect(portfolio.cancel)
-    window.openOrders.requestCancelAll.connect(portfolio.cancelAll)
-
-    window.buySellDailog.sellRequest.connect(portfolio.sell)
-    window.buySellDailog.buyRequest.connect(portfolio.buy)
     # endregion
 
     #region run
@@ -1616,14 +1646,19 @@ if __name__ == "__main__":
     #Send positions, open orders, closed order to GUI
     portfolio.sendPortFolio()
 
+
+
+
     #get a lis of all symbols in the portfolio for subrcibing data from polugon
     portfolioSymbols=portfolio.allSymbols()
-    t0 = Threader()
-    @t0.asyncThread('subscribe')
-    async def subscribe():
-        await dataStream.subscribe(portfolioSymbols)
+    dataStream.conn.loop.run_until_complete(dataStream.conn.subscribe(dataStream.getChannels(portfolioSymbols)))
 
-    #endregion
+
+    #start the polygon streming loop in different thread, so that it wont block the program
+    t = threading.Thread(target=Threader.asyncioLooper, args=(dataStream.conn.loop,))
+    t.start()
+
 
     #run the main loop for GUI
     sys.exit(app.exec_())
+    #endregion
