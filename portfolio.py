@@ -1190,6 +1190,7 @@ class OpenOrder(QTableView):
 
 #closed order table
 class ClosedOrder(QTableView):
+    requestStockData = Signal(str, str)
     def __init__(self,columns):
         super().__init__()
         self.model = QStandardItemModel()
@@ -1220,7 +1221,10 @@ class ClosedOrder(QTableView):
             self.resizeColumnsToContents()
 
     def handleSelectionChanged(self, selected, deselected):
-        pass
+        if selected.indexes().__len__()!=0:
+            symbol=self.selectionModel().selectedRows()[0].data()
+            window.timeFrame.symbol=symbol
+            self.requestStockData.emit(symbol, window.timeFrame.currentText())
 
 #simple buy sell dialog
 class BuySellDialog(QDialog):
@@ -1582,6 +1586,7 @@ if __name__ == "__main__":
         window.timeFrame.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.openPositions.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.openOrders.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
+        window.closedOrders.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
 
         #update GUI with realtime tick and quote
         dataStream.sendAccountData.connect(window.displayAccountData, Qt.QueuedConnection)
