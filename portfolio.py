@@ -755,6 +755,8 @@ class Threader(object):
 #GUI main window
 class MainWindow(QMainWindow):
 
+    requestStockData = Signal(str, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resize(1400,800)
@@ -828,16 +830,26 @@ class MainWindow(QMainWindow):
 
         rw=QWidget()
         rg = QGridLayout()
-        lb5=QLabel('Chart')
+        lb51=QLabel('Symbol')
+        rg.addWidget(lb51,0,0,1,1)
+        self.ql51 = QLineEdit()
+        rg.addWidget(self.ql51,0,1,1,1)
+        b1=QPushButton("Show")
+        rg.addWidget(b1,0,2,1,1)
+        b1.clicked.connect(self.showsym)
         lb6=QLabel('TimeFrame')
         self.timeFrame=TimeFrame()
-        rg.addWidget(lb5,0,0,1,1)
-        rg.addWidget(lb6,0,1,1,1,Qt.AlignRight)
-        rg.addWidget(self.timeFrame,0,2,1,1,Qt.AlignLeft)
+        rg.addWidget(lb6,0,3,1,1,Qt.AlignRight)
+        rg.addWidget(self.timeFrame,0,4,1,1,Qt.AlignLeft)
+        rg.setColumnMinimumWidth(4,100)
         self.chartview = ChartView()
-        rg.addWidget(self.chartview,1,0,1,3)
+        rg.addWidget(self.chartview,1,0,1,5)
         rw.setLayout(rg)
         hs.addWidget(rw)
+
+    def showsym(self):
+        self.requestStockData.emit(self.ql51.text().upper(), self.timeFrame.currentText())
+        self.ql51.setText('')
 
     def displayAccountData(self,bp,pf):
         self.buyingPower=bp
@@ -1584,6 +1596,7 @@ if __name__ == "__main__":
         #when clicked on a symbol on watchlist, position and closed orders or when timeframe changed
         window.watchLists.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.timeFrame.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
+        window.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.openPositions.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.openOrders.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
         window.closedOrders.requestStockData.connect(portfolio.sendStockData, Qt.QueuedConnection)
