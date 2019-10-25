@@ -103,6 +103,7 @@ class Portfolio(QObject):
                 self.opos_df=opos_df
                 if self.opos_df is not None and lord_df is not None:
                     self.opos_df = self.opos_df.merge(lord_df, how='left', on='symbol')
+                    self.opos_df = self.opos_df.sort_values(by='filled_at', ascending=False)
                 #self.positionsLoaded.emit(self.opos_df)
             if symbol!='':
                 return self.opos_df[self.opos_df['symbol'] == symbol]
@@ -117,7 +118,7 @@ class Portfolio(QObject):
                 open_orders = self.api.list_orders(status='open', limit=500, direction='desc')
                 oord_df = df.DataFrame([order.__dict__['_raw'] for order in open_orders])
                 oord_df['submitted_at']=df.to_datetime(oord_df['submitted_at']).dt.tz_convert('US/Eastern')
-                self.oord_df=oord_df
+                self.oord_df=oord_df.sort_values(by='submitted_at', ascending=False)
             if symbol!='':
                 return self.oord_df[self.oord_df['symbol'] == symbol]
         except Exception as e:
@@ -133,7 +134,7 @@ class Portfolio(QObject):
                 cord_df['filled_on']=cord_df['filled_at'].str[:10]
                 cord_df['filled_at']=df.to_datetime(cord_df['filled_at']).dt.tz_convert('US/Eastern')
                 cord_df = cord_df[cord_df['status'] == 'filled']
-                self.cord_df=cord_df
+                self.cord_df=cord_df.sort_values(by='filled_at', ascending=False)
             if symbol!='':
                 cord_df1 = self.cord_df[self.cord_df['symbol'] == symbol]
                 #self.closedOrderLoaded.emit(cord_df1)
