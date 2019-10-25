@@ -103,7 +103,7 @@ class Portfolio(QObject):
                 self.opos_df=opos_df
                 if self.opos_df is not None and lord_df is not None:
                     self.opos_df = self.opos_df.merge(lord_df, how='left', on='symbol')
-                self.positionsLoaded.emit(self.opos_df)
+                #self.positionsLoaded.emit(self.opos_df)
             if symbol!='':
                 return self.opos_df[self.opos_df['symbol'] == symbol]
         except Exception as e:
@@ -123,8 +123,6 @@ class Portfolio(QObject):
         except Exception as e:
             self.oord_df=None
             return None
-        finally:
-            self.openOrderLoaded.emit(self.oord_df)
         return self.oord_df
 
     def loadClosedOrders(self,symbol=''):
@@ -345,16 +343,21 @@ class StreamingData(QObject):
                 self.sendMessage.emit("{} order partially executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
             if data.event=='fill':
                 self.sendMessage.emit("{} order executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
-            portfolio.sendPortFolio()
+            #portfolio.sendPortFolio()
 
         @conn.on('A')
         async def on_tick_messages(conn, channel, data):
             self.sendMessage0.emit('{}:{}'.format(data.symbol,data.close))
             self.sendTick.emit(data.symbol,data)
             algo1.setData(data.symbol,data)
-            self.runAlgo1.emit()
+            #self.runAlgo1.emit()
             algo2.setData(data.symbol,data)
-            self.runAlgo2.emit()
+            #self.runAlgo2.emit()
+
+            portfolio.saveTicks(data.symbol,data)
+            algo1.runAlgo()
+            algo2.runAlgo()
+
 
 
         @conn.on('AM')
@@ -362,10 +365,13 @@ class StreamingData(QObject):
             self.sendMessage0.emit('{}:{}'.format(data.symbol,data.close))
             self.sendMTick.emit(data.symbol, data)
             algo1.setData(data.symbol,data)
-            algo1.runAlgo()
+            #algo1.runAlgo()
             algo2.setData(data.symbol,data)
-            algo2.runAlgo()
+            #algo2.runAlgo()
 
+            portfolio.saveTicks(data.symbol,data)
+            algo1.runAlgo()
+            algo2.runAlgo()
 
         @conn.on('T')
         async def on_trade_messages(conn, channel, data):
@@ -814,6 +820,7 @@ class MainWindow(QMainWindow):
         mg.setColumnMinimumWidth(0,1200)
         mg.addWidget(self.statusline0,2,1,1,1)
 
+
         self.setCentralWidget(mw)
 
         lw1 = QWidget()
@@ -823,13 +830,13 @@ class MainWindow(QMainWindow):
         self.watchLists = WatchLists(['Symbol', 'Bid', 'Last', 'Ask'])
         lg1.addWidget(lb1,0,0,1,1,Qt.AlignRight)
         lg1.addWidget(self.watchListcombo, 0, 1, 1, 1,Qt.AlignLeft)
-        lg1.setColumnMinimumWidth(1,100)
+        lg1.setColumnMinimumWidth(1,300)
         lb2=QLabel('Algo')
         self.algoCombo = AlgoCombo()
         lg1.addWidget(lb2,0,2,1,1,Qt.AlignRight)
         lg1.addWidget(self.algoCombo,0,3,1,1,Qt.AlignLeft)
         lg1.addWidget(self.watchLists, 1, 0, 1, 4)
-        lg1.setColumnMinimumWidth(3,100)
+        lg1.setColumnMinimumWidth(3,300)
         lw1.setLayout(lg1)
         vs.addWidget(lw1)
 
@@ -1641,8 +1648,8 @@ if __name__ == "__main__":
         dataStream.getMinuteHistory.connect(minHistory.getHistory)
         dataStream.runAlgo1.connect(algo1.runAlgo)
         dataStream.runAlgo2.connect(algo2.runAlgo)
-        dataStream.sendTick.connect(portfolio.saveTicks)
-        dataStream.sendMTick.connect(portfolio.saveTicks)
+        #dataStream.sendTick.connect(portfolio.saveTicks)
+        #dataStream.sendMTick.connect(portfolio.saveTicks)
 
         watchListSelector.listOfWatchList.connect(window.watchListcombo.loadData)
         window.watchListcombo.selectWatchList.connect(watchListSelector.selectWatchList)
@@ -1677,7 +1684,12 @@ if __name__ == "__main__":
     #Send positions, open orders, closed order to GUI
     portfolioThread.started.connect(portfolio.sendPortFolio)
     portfolioThread.start()
-    #portfolio.sendPortFolio()
+
+    async def sendportfolio():
+        portfolio.sendPortFolio()
+    ael3 = AsyncEventLooper()
+    ael3.add_periodic_task(sendportfolio, 10)
+    ael3.start()
 
     #get a lis of all symbols in the portfolio for subrcibing data from polugon
     portfolioSymbols=portfolio.allSymbols()
