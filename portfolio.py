@@ -649,7 +649,7 @@ class TopEmaCountScanner(QObject):
                  tolerance = .99, volume=1000000 ):
         super().__init__()
         self.api = api
-        self.buyingPower= float(self.api.get_account().buying_power)
+        self.buyingPower= float(portfolio.account.buying_power)
 
         self.ema2 = ema2
         self.cnt2=cnt2
@@ -751,8 +751,10 @@ class Algo1(Algos):
             qty = portfolio.stockPosition.get(self.symbol)
         if close > last3barmax:
             if qty <= 0:
-                portfolio.stockOrdered[self.symbol] = True
-                portfolio.buy(self.symbol, 1, close, 'Algo1')
+                buyqty=1
+                if portfolio.sendBuyingPower > close * buyqty:
+                    portfolio.stockOrdered[self.symbol] = True
+                    portfolio.buy(self.symbol, buyqty, close, 'Algo1')
 
         if close < last3barmin:
             if qty > 0:
@@ -786,14 +788,16 @@ class Algo2(Algos):
             qty = portfolio.stockPosition.get(self.symbol)
         if close > ema:
             if qty <= 0:
-                portfolio.stockOrdered[self.symbol] = True
-                portfolio.buy(self.symbol, 1, close, 'Algo2')
+                buyqty=1
+                if portfolio.sendBuyingPower > close * buyqty:
+                    portfolio.stockOrdered[self.symbol] = True
+                    portfolio.buy(self.symbol, buyqty, close, 'Algo2')
         if close < ema:
             if qty > 0:
                 if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
                        portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
                     portfolio.stockOrdered[self.symbol] = True
-                    portfolio.sell(self.symbol, 1, close, 'Algo2')
+                    portfolio.sell(self.symbol, qty, close, 'Algo2')
 
 # endregion
 
