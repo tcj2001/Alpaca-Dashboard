@@ -90,6 +90,7 @@ class Portfolio(QObject):
         self.stockPosition = {}
         self.stockPartialPosition = {}
         self.stockFilledAt = {}
+        self.buying_power=0
         self.sendPortFolio()
 
     def snapshot(self,symbol):
@@ -305,6 +306,7 @@ class Portfolio(QObject):
         self.openOrderLoaded.emit(self.oord_df)
         self.closedOrderLoaded.emit(self.cord_df)
         self.account=self.api.get_account()
+        self.buying_power=float(self.account.buying_power)
         self.sendBuyingPower.emit(float(self.account.buying_power),float(self.account.last_equity)-float(self.account.equity))
 
 #handles polygon data
@@ -752,7 +754,7 @@ class Algo1(Algos):
         if close > last3barmax:
             if qty <= 0:
                 buyqty=1
-                if float(portfolio.account.buying_power) > close * buyqty:
+                if portfolio.buying_power > close * buyqty:
                     portfolio.stockOrdered[self.symbol] = True
                     portfolio.buy(self.symbol, buyqty, close, 'Algo1')
 
@@ -789,7 +791,7 @@ class Algo2(Algos):
         if close > ema:
             if qty <= 0:
                 buyqty=1
-                if float(portfolio.account.buying_power) > close * buyqty:
+                if portfolio.buying_power > close * buyqty:
                     portfolio.stockOrdered[self.symbol] = True
                     portfolio.buy(self.symbol, buyqty, close, 'Algo2')
         if close < ema:
