@@ -752,7 +752,7 @@ class Algo1(Algos):
         if close > last3barmax:
             if qty <= 0:
                 buyqty=1
-                if portfolio.sendBuyingPower > close * buyqty:
+                if float(portfolio.account.buying_power) > close * buyqty:
                     portfolio.stockOrdered[self.symbol] = True
                     portfolio.buy(self.symbol, buyqty, close, 'Algo1')
 
@@ -789,7 +789,7 @@ class Algo2(Algos):
         if close > ema:
             if qty <= 0:
                 buyqty=1
-                if portfolio.sendBuyingPower > close * buyqty:
+                if float(portfolio.account.buying_power) > close * buyqty:
                     portfolio.stockOrdered[self.symbol] = True
                     portfolio.buy(self.symbol, buyqty, close, 'Algo2')
         if close < ema:
