@@ -23,6 +23,7 @@ from PySide2.QtWidgets import *
 from PySide2.QtCharts import *
 from PySide2.QtCore import *
 
+# region global
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
                     datefmt='%m-%d %H:%M',
@@ -39,6 +40,7 @@ except Exception as e:
 
 # alpaca api
 api = tradeapi.REST(key_id, secret_key, base_url)
+#endregion
 
 # region Model (Logic)
 
@@ -87,6 +89,7 @@ class Portfolio(QObject):
         self.stockOrdered = {}
         self.stockPosition = {}
         self.stockPartialPosition = {}
+        self.stockFilledAt = {}
         self.sendPortFolio()
 
     def snapshot(self,symbol):
@@ -104,6 +107,7 @@ class Portfolio(QObject):
                 if self.opos_df is not None and lord_df is not None:
                     self.opos_df = self.opos_df.merge(lord_df, how='left', on='symbol')
                     self.opos_df = self.opos_df.sort_values(by='filled_at', ascending=False)
+                    self.stockFilledAt=dict(zip(self.opos_df['symbol'], self.opos_df['filled_at']))
                 #self.positionsLoaded.emit(self.opos_df)
             if symbol!='':
                 return self.opos_df[self.opos_df['symbol'] == symbol]
@@ -752,8 +756,10 @@ class Algo1(Algos):
 
         if close < last3barmin:
             if qty > 0:
-                portfolio.stockOrdered[self.symbol] = True
-                portfolio.sell(self.symbol, 1, close, 'Algo1')
+                if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
+                       portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
+                    portfolio.stockOrdered[self.symbol] = True
+                    portfolio.sell(self.symbol, 1, close, 'Algo1')
 
 class Algo2(Algos):
     def __init__(self):
@@ -784,8 +790,10 @@ class Algo2(Algos):
                 portfolio.buy(self.symbol, 1, close, 'Algo2')
         if close < ema:
             if qty > 0:
-                portfolio.stockOrdered[self.symbol] = True
-                portfolio.sell(self.symbol, 1, close, 'Algo2')
+                if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
+                       portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
+                    portfolio.stockOrdered[self.symbol] = True
+                    portfolio.sell(self.symbol, 1, close, 'Algo2')
 
 # endregion
 
