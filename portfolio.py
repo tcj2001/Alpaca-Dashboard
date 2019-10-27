@@ -745,7 +745,6 @@ class Algo1(Algos):
             return
         # print('algo1 ',self.symbol)
         # write your algo here
-        # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
         study = Study(portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
         studyHistory = study.getHistory()
         close = studyHistory['close'][-1]
@@ -793,7 +792,6 @@ class Algo2(Algos):
             return
         # print('algo1 ',self.symbol)
         # write your algo here
-        # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
         study = Study(portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
         study.addEMA(20)
         studyHistory = study.getHistory()
