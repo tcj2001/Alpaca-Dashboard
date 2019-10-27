@@ -651,7 +651,6 @@ class TopEmaCountScanner(QObject):
                  tolerance = .99, volume=1000000 ):
         super().__init__()
         self.api = api
-        self.buyingPower= float(portfolio.account.buying_power)
 
         self.ema2 = ema2
         self.cnt2=cnt2
@@ -675,8 +674,7 @@ class TopEmaCountScanner(QObject):
                 study = Study(mHistory)
                 study.addEMA(ema2)
                 studyHistory = study.getHistory()
-                if studyHistory['close'][-1] < self.buyingPower and \
-                        studyHistory['close'][-1] > studyHistory['EMA' + str(ema2)][-1]:
+                if studyHistory['close'][-1] > studyHistory['EMA' + str(ema2)][-1]:
                     count = studyHistory[studyHistory['close'] > studyHistory['EMA' + str(ema2)]].shape[0]
                     sdf.loc[symbol] = {'count': count}
                 sdf.sort_values(by=['count'], inplace=True, ascending=False)
@@ -691,7 +689,6 @@ class TopEmaCountScanner(QObject):
                 ticker.lastTrade['p'] <= self.max_share_price and
                 ticker.day['v'] * ticker.lastTrade['p'] > self.min_last_dv and
                 ticker.day['c'] > ticker.prevDay['c'] and
-                ticker.day['c']>=ticker.day['h']*self.tolerance and
                 ticker.day['v']>=self.volume
         )]
         wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P']] for ticker in self.selectedTickers]
@@ -727,6 +724,7 @@ class Algos(QObject):
     def runAlgo(self):
         pass
 
+#buy/sell if close is above/below the las 15min high/low
 class Algo1(Algos):
     def __init__(self):
         super().__init__()
@@ -740,14 +738,19 @@ class Algo1(Algos):
         # not enough history
         if portfolio.stockHistory.get(self.symbol) is None:
             return
+        #check algo starttime
+        ts = self.data.start
+        ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
+        if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
+            return
         # print('algo1 ',self.symbol)
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
-        study = Study(portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
+        study = Study(portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
         studyHistory = study.getHistory()
         close = studyHistory['close'][-1]
-        last3barmax = studyHistory['high'].tail(3).max()
-        last3barmin = studyHistory['high'].tail(3).min()
+        last3barmax = studyHistory['high'].tail(2).max()
+        last3barmin = studyHistory['high'].tail(2).min()
         qty = 0
         if portfolio.stockPosition.get(self.symbol) is not None:
             qty = portfolio.stockPosition.get(self.symbol)
@@ -760,11 +763,13 @@ class Algo1(Algos):
 
         if close < last3barmin:
             if qty > 0:
+                #avoid daytrade
                 if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
                        portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
                     portfolio.stockOrdered[self.symbol] = True
                     portfolio.sell(self.symbol, 1, close, 'Algo1')
 
+#buy/sell if close is above/below 20ema for symmbols in top20ema count watchlist
 class Algo2(Algos):
     def __init__(self):
         super().__init__()
@@ -772,12 +777,21 @@ class Algo2(Algos):
         #return if algo is not checked
         if not algoSelector.algoLists['Algo2']:
             return
+        #only consider symbol in watchlist3
+        if self.symbol not in watchListSelector.wl3.getSymbols():
+            return
         #prevent reordering till last order is filled or rejected
         if portfolio.stockOrdered.get(self.symbol) is not None:
             return
         # not enough history
         if portfolio.stockHistory.get(self.symbol) is None:
             return
+        #check algo starttime
+        ts = self.data.start
+        ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
+        if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
+            return
+        # print('algo1 ',self.symbol)
         # write your algo here
         # this algo resamples the history at 5minute and generate buy or sell signal on cci(4) crosover of 100 and -100
         study = Study(portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
@@ -796,6 +810,7 @@ class Algo2(Algos):
                     portfolio.buy(self.symbol, buyqty, close, 'Algo2')
         if close < ema:
             if qty > 0:
+                #avoid daytrade
                 if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
                        portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
                     portfolio.stockOrdered[self.symbol] = True
