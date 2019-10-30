@@ -23,25 +23,6 @@ from PySide2.QtWidgets import *
 from PySide2.QtCharts import *
 from PySide2.QtCore import *
 
-# region global
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-                    datefmt='%m-%d %H:%M',
-                    filename='portfolio.log',
-                    filemode='w')
-
-# get keys form environment variable
-try:
-    key_id = os.environ['KEY_ID']
-    secret_key = os.environ['SECRET_KEY']
-    base_url = os.environ['BASE_URL']
-except Exception as e:
-    raise Exception('Set API keys')
-
-# alpaca api
-api = tradeapi.REST(key_id, secret_key, base_url)
-#endregion
-
 # region Model (Logic)
 
 class AsyncEventLooper():
@@ -75,27 +56,32 @@ class AsyncEventLooper():
 #portfolio class handle alpaca data
 class Portfolio(QObject):
 
-    sendMessage=Signal(str)
+    sendMessageTL=Signal(str)
     sendBuyingPower = Signal(float,float)
     openOrderLoaded = Signal(df.DataFrame)
     closedOrderLoaded = Signal(df.DataFrame)
     positionsLoaded = Signal(df.DataFrame)
     stockDataReady = Signal(str, df.DataFrame, df.DataFrame, df.DataFrame, df.DataFrame, str)
 
-    def __init__(self,api):
+    def __init__(self,env):
         super().__init__()
-        self.api=api
+        self.api=env.api
         self.stockHistory = {}
         self.stockOrdered = {}
         self.stockPosition = {}
         self.stockPartialPosition = {}
         self.stockFilledAt = {}
         self.buying_power=0
-        self.sendPortFolio()
 
     def snapshot(self,symbol):
-        ss = api.polygon.snapshot(symbol)
-        return ss.ticker['day']['o'],ss.ticker['day']['h'],ss.ticker['day']['l'],ss.ticker['lastQuote']['p'],ss.ticker['lastTrade']['p'],ss.ticker['lastQuote']['P']
+        ss = self.api.polygon.snapshot(symbol)
+        bid=ss.ticker['lastQuote']['p']
+        if bid==0:
+            bid=ss.ticker['lastTrade']['p']
+        ask=ss.ticker['lastQuote']['P']
+        if ask==0:
+            ask=ss.ticker['lastTrade']['p']
+        return ss.ticker['day']['o'],ss.ticker['day']['h'],ss.ticker['day']['l'],bid,ss.ticker['lastTrade']['p'],ask
 
     def loadOpenPosition(self,lord_df,symbol=''):
         try:
@@ -189,59 +175,59 @@ class Portfolio(QObject):
         try:
             do, dh, dl, bp, lp, ap = self.snapshot(symbol)
             if price > ap:
-                o = api.submit_order(
+                o = self.api.submit_order(
                     symbol, qty=str(qty), side='buy',
                     type='stop', time_in_force='day',
                     stop_price=str(price),
                     extended_hours=False
                 )
             else:
-                o = api.submit_order(
+                o = self.api.submit_order(
                     symbol, qty=str(qty), side='buy',
                     type='limit', time_in_force='day',
                     limit_price=str(price),
                     extended_hours=True
                 )
-            self.sendMessage.emit('{} Buying {} Qty of {} @ {}'.format(tag,str(qty),symbol,str(price)))
+            self.sendMessageTL.emit('{} Buying {} Qty of {} @ {}'.format(tag,str(qty),symbol,str(price)))
         except Exception as e:
             del self.stockOrdered[symbol]
-            self.sendMessage.emit('{} buy error: {}'.format(symbol,e.args[0]))
+            self.sendMessageTL.emit('{} buy error: {}'.format(symbol,e.args[0]))
 
     def sell(self,symbol,qty,price,tag=None):
         try:
             do, dh, dl, bp, lp, ap = self.snapshot(symbol)
             if price < bp:
-                o = api.submit_order(
+                o = self.api.submit_order(
                     symbol, qty=str(qty), side='sell',
                     type='stop', time_in_force='day',
                     stop_price=str(price),
                     extended_hours=False
                 )
             else:
-                o = api.submit_order(
+                o = self.api.submit_order(
                     symbol, qty=str(qty), side='sell',
                     type='limit', time_in_force='day',
                     limit_price=str(price),
                     extended_hours=True
                 )
-            self.sendMessage.emit('{} Selling {} Qty of {} @ {}'.format(tag,str(qty),symbol,str(price)))
+            self.sendMessageTL.emit('{} Selling {} Qty of {} @ {}'.format(tag,str(qty),symbol,str(price)))
         except Exception as e:
             del self.stockOrdered[symbol]
-            self.sendMessage.emit('{} sell error: {}'.format(symbol,e.args[0]))
+            self.sendMessageTL.emit('{} sell error: {}'.format(symbol,e.args[0]))
 
     def cancel(self,symbol,id):
         try:
-            o = api.cancel_order(id)
-            self.sendMessage.emit('Cancelling order {} of {}'.format(id,symbol))
+            o = self.api.cancel_order(id)
+            self.sendMessageTL.emit('Cancelling order {} of {}'.format(id,symbol))
         except Exception as e:
-            self.sendMessage.emit(e.args[0])
+            self.sendMessageTL.emit(e.args[0])
 
     def cancelAll(self):
         try:
-            o = api.cancel_all_orders()
-            self.sendMessage.emit('Cancelling all order')
+            o = self.api.cancel_all_orders()
+            self.sendMessageTL.emit('Cancelling all order')
         except Exception as e:
-            self.sendMessage.emit(e.args[0])
+            self.sendMessageTL.emit(e.args[0])
 
     def saveHistory(self, symbol, history):
         self.stockHistory[symbol]=history
@@ -311,27 +297,28 @@ class Portfolio(QObject):
 
 #handles polygon data
 class StreamingData(QObject):
-    sendMessage0 = Signal(str)
-    sendMessage=Signal(str)
+    sendMessageTL = Signal(str)
+    sendMessageTR=Signal(str)
     sendQuote=Signal(str,dict)
     sendTrade=Signal(str,dict)
     sendTick=Signal(str,dict)
     sendMTick = Signal(str, dict)
     sendAccountData = Signal(float,float)
     getMinuteHistory = Signal()
-    runAlgo1 = Signal()
-    runAlgo2 = Signal()
 
-    def __init__(self,key_id,secret_key,base_url):
+    def __init__(self, env):
         super().__init__()
+        self.portfolio=env.portfolio
+        self.conn=env.conn
+        self.minHistory=env.minHistory
+        self.algo1=env.algo1
+        self.algo2=env.algo2
 
+
+    def setup(self,key_id,secret_key,base_url):
         self.key_id=key_id
         self.secret_key=secret_key
         self.base_url=base_url
-
-        #streaming api
-        self.conn = tradeapi.StreamConn(key_id=self.key_id, secret_key=self.secret_key, base_url=self.base_url)
-
         conn=self.conn
         @conn.on('status')
         async def on_status_messages(conn, channel, data):
@@ -345,40 +332,34 @@ class StreamingData(QObject):
         @conn.on('trade_updates')
         async def on_trade_updates(conn, channel, data):
             if data.event=='new':
-                self.sendMessage.emit("new {} order placed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['qty'], data.order['submitted_at']))
+                self.sendMessageTL.emit("new {} order placed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['qty'], data.order['submitted_at']))
             if data.event=='partially_filled':
-                self.sendMessage.emit("{} order partially executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
+                self.sendMessageTL.emit("{} order partially executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
             if data.event=='fill':
-                self.sendMessage.emit("{} order executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
-            #portfolio.sendPortFolio()
+                self.sendMessageTL.emit("{} order executed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['filled_qty'], data.order['filled_at']))
 
         @conn.on('A')
         async def on_tick_messages(conn, channel, data):
-            self.sendMessage0.emit('{}:{}'.format(data.symbol,data.close))
+            #print(self.base_url)
+            self.sendMessageTR.emit('{}:{}'.format(data.symbol,data.close))
             self.sendTick.emit(data.symbol,data)
-            algo1.setData(data.symbol,data)
-            #self.runAlgo1.emit()
-            algo2.setData(data.symbol,data)
-            #self.runAlgo2.emit()
-
-            portfolio.saveTicks(data.symbol,data)
-            algo1.runAlgo()
-            algo2.runAlgo()
+            self.portfolio.saveTicks(data.symbol,data)
+            self.algo1.setData(data.symbol,data)
+            self.algo2.setData(data.symbol,data)
+            self.algo1.runAlgo()
+            self.algo2.runAlgo()
 
 
 
         @conn.on('AM')
         async def on_minute_messages(conn, channel, data):
-            self.sendMessage0.emit('{}:{}'.format(data.symbol,data.close))
+            self.sendMessageTR.emit('{}:{}'.format(data.symbol,data.close))
             self.sendMTick.emit(data.symbol, data)
-            algo1.setData(data.symbol,data)
-            #algo1.runAlgo()
-            algo2.setData(data.symbol,data)
-            #algo2.runAlgo()
-
-            portfolio.saveTicks(data.symbol,data)
-            algo1.runAlgo()
-            algo2.runAlgo()
+            self.portfolio.saveTicks(data.symbol,data)
+            self.algo1.setData(data.symbol,data)
+            self.algo2.setData(data.symbol,data)
+            self.algo1.runAlgo()
+            self.algo2.runAlgo()
 
         @conn.on('T')
         async def on_trade_messages(conn, channel, data):
@@ -394,7 +375,7 @@ class StreamingData(QObject):
     def getChannels(self,symbolList):
         channelList=[]
         if symbolList is not None:
-            minHistory.setSymbolList(symbolList)
+            self.minHistory.setSymbolList(symbolList)
             self.getMinuteHistory.emit()
             for symbol in symbolList:
                 symbol_channels = ['A.{}'.format(symbol), 'AM.{}'.format(symbol), 'Q.{}'.format(symbol), 'T.{}'.format(symbol)]
@@ -406,14 +387,20 @@ class StreamingData(QObject):
             await self.conn.subscribe(channels)
 
 class MinuteHistory(QObject):
-    def __init__(self):
+    sendMessageBR=Signal(str)
+
+    def __init__(self,env,minutes):
         super().__init__()
+        self.api=env.api
+        self.portfolio=env.portfolio
+        self.minutes=minutes
     def setSymbolList(self,symbols):
         self.symbolList=symbols
     def getHistory(self):
         for symbol in self.symbolList:
-            history = portfolio.getMinutesHistory(symbol, 100)
-            portfolio.saveHistory(symbol, history)
+            self.sendMessageBR.emit("Fetching {} minute history for {}".format(self.minutes,symbol))
+            history = self.api.polygon.historic_agg(size="minute", symbol=symbol, limit=self.minutes).df
+            self.portfolio.saveHistory(symbol, history)
 
 class Study(QObject):
     def __init__(self, history):
@@ -531,10 +518,13 @@ class WatchListSelector(QObject):
 
     watchlistSelected = Signal(df.DataFrame)
     listOfWatchList = Signal(list)
+    sendMessageBR=Signal(str)
 
-    def __init__(self):
+    def __init__(self,env):
         super().__init__()
 
+        self.api=env.api
+        self.dataStream=env.dataStream
         #implementing three watchlist
         self.watchLists=[' ', 'Jumbo', 'Chinese', 'TopEmaCount', 'HighOfTheDay']
         self.wl1 = None
@@ -543,32 +533,34 @@ class WatchListSelector(QObject):
         self.wl4 = None
 
         #this watchlist is a static list of symbol, you change code to laod from a file
-        self.wl1 = WatchList(['TSLA', 'FB', 'AAPL', 'GOOGL', 'NFLX'])
-        channels = dataStream.getChannels(self.wl1.getSymbols())
-        dataStream.conn.loop.run_until_complete(asyncio.gather(dataStream.conn.subscribe(channels)))
+        self.wl1 = WatchList(self.api,['TSLA', 'FB', 'AAPL', 'GOOGL', 'NFLX'])
+        channels = self.dataStream.getChannels(self.wl1.getSymbols())
+        self.dataStream.conn.loop.run_until_complete(asyncio.gather(self.dataStream.conn.subscribe(channels)))
 
         # this watchlist is a static list of symbol, you change code to laod from a file
-        self.wl2 = WatchList(['BABA', 'BIDU', 'WB'])
-        channels = dataStream.getChannels(self.wl2.getSymbols())
-        dataStream.conn.loop.run_until_complete(asyncio.gather(dataStream.conn.subscribe(channels)))
+        self.wl2 = WatchList(self.api,['BABA', 'BIDU', 'WB'])
+        channels = self.dataStream.getChannels(self.wl2.getSymbols())
+        self.dataStream.conn.loop.run_until_complete(asyncio.gather(self.dataStream.conn.subscribe(channels)))
 
         async def scanner1():
-            # print('scanner')
-            self.wl3 = TopEmaCountScanner()
+            self.sendMessageBR.emit('Starting TopEmaCountScanner')
+            self.wl3 = TopEmaCountScanner(self.api)
+            self.sendMessageBR.emit('TopEmaCountScanner done')
             if self.wl3 is not None:
-                channels = dataStream.getChannels(self.wl3.getSymbols())
-                await dataStream.conn.subscribe(channels)
+                channels = self.dataStream.getChannels(self.wl3.getSymbols())
+                await self.dataStream.conn.subscribe(channels)
                 # dataStream.conn.loop.run_until_complete(asyncio.gather(dataStream.conn.subscribe(channels)))
         ael1 = AsyncEventLooper()
         ael1.add_periodic_task(scanner1, 900)
         ael1.start()
 
         async def scanner2():
-            # print('scanner')
-            self.wl4 = HighOfTheDayScanner()
+            self.sendMessageBR.emit('Starting HighOfTheDayScanner')
+            self.wl4 = HighOfTheDayScanner(self.api)
+            self.sendMessageBR.emit('HighOfTheDayScannerc done')
             if self.wl4 is not None:
-                channels = dataStream.getChannels(self.wl4.getSymbols())
-                await dataStream.conn.subscribe(channels)
+                channels = self.dataStream.getChannels(self.wl4.getSymbols())
+                await self.dataStream.conn.subscribe(channels)
                 # dataStream.conn.loop.run_until_complete(asyncio.gather(dataStream.conn.subscribe(channels)))
         ael2 = AsyncEventLooper()
         ael2.add_periodic_task(scanner2, 300)
@@ -597,10 +589,11 @@ class WatchListSelector(QObject):
 
 # generic watchlist class
 class WatchList(QObject):
-    def __init__(self, symbols):
+    def __init__(self, api, symbols):
         super().__init__()
+        self.api=api
         self.symbols=None
-        tickers = api.polygon.all_tickers()
+        tickers = self.api.polygon.all_tickers()
         self.selectedTickers = [ticker for ticker in tickers if (ticker.ticker in symbols)]
         wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P']] for ticker in self.selectedTickers]
         self.wl_df = df.DataFrame.from_records(wlist)
@@ -612,22 +605,23 @@ class WatchList(QObject):
 
 # scanner stocks at high of the day
 class HighOfTheDayScanner(QObject):
-    def __init__(self,min_share_price=10, max_share_price=100, min_last_dv=100000000,
+    def __init__(self,api,min_share_price=10, max_share_price=100, min_last_dv=100000000,
                  tolerance = .99, volume=1000000):
         super().__init__()
+        self.api=api
         self.min_share_price = min_share_price
         self.max_share_price = max_share_price
         self.min_last_dv = min_last_dv
         self.tolerance=tolerance
         self.volume=volume
 
-        self.account = api.get_account()
-        self.assets = api.list_assets()
+        self.account = self.api.get_account()
+        self.assets = self.api.list_assets()
         self.symbols = [asset.symbol for asset in self.assets if asset.tradable]
-        self.selectedSymbols=None
+        self.selectedSymbols=[]
 
         #self.sendMessage.emit("Starting high of the day Scanner")
-        tickers = api.polygon.all_tickers()
+        tickers = self.api.polygon.all_tickers()
         self.selectedTickers = [ticker for ticker in tickers if (
                 ticker.ticker in self.symbols and
                 ticker.lastTrade['p'] >= self.min_share_price and
@@ -647,11 +641,10 @@ class HighOfTheDayScanner(QObject):
 
 # stocks with top count of close above ema
 class TopEmaCountScanner(QObject):
-    def __init__(self,  minutes=100,   ema2=20,cnt2=10,atrlength=20,atr=1,min_share_price=10, max_share_price=100, min_last_dv=100000000,
+    def __init__(self, api, minutes=100,   ema2=20,cnt2=10,atrlength=20,atr=1,min_share_price=10, max_share_price=100, min_last_dv=100000000,
                  tolerance = .99, volume=1000000 ):
         super().__init__()
-        self.api = api
-
+        self.api=api
         self.ema2 = ema2
         self.cnt2=cnt2
         self.atr=atr
@@ -662,6 +655,7 @@ class TopEmaCountScanner(QObject):
         self.min_last_dv = min_last_dv
         self.tolerance=tolerance
         self.volume=volume
+        self.selectedSymbols=[]
 
 
         symbols=["AMD","WFC","SQ","ABBV","FB","AAPL","GS","C","KO","WDC","NKE","WMT","TGT","CSCO","COST","ORLY","LABD","V","MA","BABA","JD","WB","DIS","LK","TWLO","CSX","Z","BIDU","MCD","DVN","ACB","GILD","QQQ","SBUX","WBA","STX","AMZN","FAST","NFLX","CELG","AMAT","UPS","FDX","DELL","SNAP","TWTR","DWT","JBLU","AKS","CMG","DB","GLD","LABU","DGAZ","UGAZ","UAL","NUGT","WYNN","NTES","SIRI","AMGN","MAR","ROST","DLTR","LULU","AEM","UWT","H","FAS","LVS","JNPR","PAYC","CRON","DD","URI","MOS","CLDR","WYND","RH","EA","NOK","HTZ","WSM","SHOP","OKTA","IMMU","CRWD","JNUG","IBM","WORK","ADI","DHI","KB","TOL","PEP","BYND","CLX","MU","OSTK","ROKU","ULTA"]
@@ -670,7 +664,7 @@ class TopEmaCountScanner(QObject):
 
         for symbol in symbols:
             try:
-                mHistory = portfolio.getMinutesHistory(symbol, minutes)
+                mHistory =  self.api.polygon.historic_agg(size="minute", symbol=symbol, limit=minutes).df
                 study = Study(mHistory)
                 study.addEMA(ema2)
                 studyHistory = study.getHistory()
@@ -682,7 +676,7 @@ class TopEmaCountScanner(QObject):
                 print(e)
         self.symbols=sdf.head(cnt2).index.tolist()
 
-        tickers = api.polygon.all_tickers()
+        tickers = self.api.polygon.all_tickers()
         self.selectedTickers = [ticker for ticker in tickers if (
                 ticker.ticker in self.symbols and
                 ticker.lastTrade['p'] >= self.min_share_price and
@@ -724,19 +718,21 @@ class Algos(QObject):
     def runAlgo(self):
         pass
 
-#buy/sell if close is above/below the las 15min high/low
+#buy/sell if close is above/below the last 15min high/low
 class Algo1(Algos):
-    def __init__(self):
+    def __init__(self,env):
         super().__init__()
+        self.env=env
+
     def runAlgo(self):
         # return if algo is not checked
-        if not algoSelector.algoLists['Algo1']:
+        if not self.env.algoSelector.algoLists['Algo1']:
             return
         # prevent reordering till last order is filled or rejected
-        if portfolio.stockOrdered.get(self.symbol) is not None:
+        if self.env.portfolio.stockOrdered.get(self.symbol) is not None:
             return
         # not enough history
-        if portfolio.stockHistory.get(self.symbol) is None:
+        if self.env.portfolio.stockHistory.get(self.symbol) is None:
             return
         #check algo starttime
         ts = self.data.start
@@ -745,45 +741,49 @@ class Algo1(Algos):
             return
         # print('algo1 ',self.symbol)
         # write your algo here
-        study = Study(portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
+        study = Study(self.env.portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
         studyHistory = study.getHistory()
         close = studyHistory['close'][-1]
         last3barmax = studyHistory['high'].tail(2).max()
         last3barmin = studyHistory['high'].tail(2).min()
         qty = 0
-        if portfolio.stockPosition.get(self.symbol) is not None:
-            qty = portfolio.stockPosition.get(self.symbol)
+        if self.env.portfolio.stockPosition.get(self.symbol) is not None:
+            qty = self.env.portfolio.stockPosition.get(self.symbol)
         if close > last3barmax:
             if qty <= 0:
                 buyqty=1
-                if portfolio.buying_power > close * buyqty:
-                    portfolio.stockOrdered[self.symbol] = True
-                    portfolio.buy(self.symbol, buyqty, close, 'Algo1')
+                if self.env.portfolio.buying_power > close * buyqty:
+                    self.env.portfolio.stockOrdered[self.symbol] = True
+                    self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo1')
 
         if close < last3barmin:
             if qty > 0:
                 #avoid daytrade
-                if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
-                       portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
-                    portfolio.stockOrdered[self.symbol] = True
-                    portfolio.sell(self.symbol, 1, close, 'Algo1')
+                if not(self.env.portfolio.stockFilledAt[self.symbol] is df.NaT or
+                       self.env.portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
+                    self.env.portfolio.stockOrdered[self.symbol] = True
+                    self.env.portfolio.sell(self.symbol, 1, close, 'Algo1')
 
 #buy/sell if close is above/below 20ema for symmbols in top20ema count watchlist
 class Algo2(Algos):
-    def __init__(self):
+    def __init__(self,env):
         super().__init__()
+        self.env=env
+
     def runAlgo(self):
         #return if algo is not checked
-        if not algoSelector.algoLists['Algo2']:
+        if not self.env.algoSelector.algoLists['Algo2']:
             return
         #only consider symbol in watchlist3
-        if self.symbol not in watchListSelector.wl3.getSymbols():
+        if self.env.watchListSelector.wl3 is None:
+            return
+        if self.symbol not in self.env.watchListSelector.wl3.getSymbols():
             return
         #prevent reordering till last order is filled or rejected
-        if portfolio.stockOrdered.get(self.symbol) is not None:
+        if self.env.portfolio.stockOrdered.get(self.symbol) is not None:
             return
         # not enough history
-        if portfolio.stockHistory.get(self.symbol) is None:
+        if self.env.portfolio.stockHistory.get(self.symbol) is None:
             return
         #check algo starttime
         ts = self.data.start
@@ -792,48 +792,81 @@ class Algo2(Algos):
             return
         # print('algo1 ',self.symbol)
         # write your algo here
-        study = Study(portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
+        study = Study(self.env.portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
         study.addEMA(20)
         studyHistory = study.getHistory()
         close = studyHistory['close'][-1]
         ema = studyHistory['EMA20'][-1]
         qty=0
-        if portfolio.stockPosition.get(self.symbol) is not None:
-            qty = portfolio.stockPosition.get(self.symbol)
+        if self.env.portfolio.stockPosition.get(self.symbol) is not None:
+            qty = self.env.portfolio.stockPosition.get(self.symbol)
         if close > ema:
             if qty <= 0:
                 buyqty=1
-                if portfolio.buying_power > close * buyqty:
-                    portfolio.stockOrdered[self.symbol] = True
-                    portfolio.buy(self.symbol, buyqty, close, 'Algo2')
+                if self.env.portfolio.buying_power > close * buyqty:
+                    self.env.portfolio.stockOrdered[self.symbol] = True
+                    self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo2')
         if close < ema:
             if qty > 0:
                 #avoid daytrade
-                if not(portfolio.stockFilledAt[self.symbol] is df.NaT or
-                       portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
-                    portfolio.stockOrdered[self.symbol] = True
-                    portfolio.sell(self.symbol, qty, close, 'Algo2')
+                if not(self.env.portfolio.stockFilledAt[self.symbol] is df.NaT or
+                       self.env.portfolio.stockFilledAt[self.symbol]._date_repr==datetime.today().astimezone(timezone('America/New_York')).strftime('%Y-%m-%d')):
+                    self.env.portfolio.stockOrdered[self.symbol] = True
+                    self.env.portfolio.sell(self.symbol, qty, close, 'Algo2')
 
 # endregion
 
 # region View (GUI)
-
-#GUI main window
+#tabbed window
 class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.title = 'Alpaca Portfolio!'
+        # Get the current screens' dimensions...
+        screen = QDesktopWidget().frameGeometry()
+        # ... and get this windows' dimensions
+        mysize = self.geometry()
+        # The horizontal position is calulated as screenwidth - windowwidth /2
+        hpos = ( screen.width() - mysize.width() ) / 2
+        # And vertical position the same, but with the height dimensions
+        vpos = ( screen.height() - mysize.height() ) / 2
+        # And the move call repositions the window
+        self.move(100, 100)
+
+        self.setWindowTitle(self.title)
+
+        mw=QWidget()
+        layout=QGridLayout()
+        mw.setLayout(layout)
+        self.setCentralWidget(mw)
+
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs,0,0,1,1)
+
+        self.tab1 = QWidget()
+        layout1=QGridLayout()
+        self.tab1.setLayout(layout1)
+
+        self.tab2 = QWidget()
+        layout2=QGridLayout()
+        self.tab2.setLayout(layout2)
+
+        self.tabs.addTab(self.tab1,'Live')
+        self.tabs.addTab(self.tab2,'Paper')
+
+#Env Window
+class EnvWindow(QWidget):
 
     requestStockData = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.resize(1400,800)
         self.buyingPower=0
-        self.setWindowTitle("Alpaca Portfolio!......... BuyingPower: {}".format(self.buyingPower))
 
         self.buySellDailog=BuySellDialog()
 
-        mw=QWidget()
         mg=QGridLayout()
-        mw.setLayout(mg)
+        self.setLayout(mg)
         hs =QSplitter(Qt.Horizontal)
         hs.setStyleSheet("QSplitter::handle { background-color: lightGray; }")
         vs = QSplitter(Qt.Vertical)
@@ -841,29 +874,35 @@ class MainWindow(QMainWindow):
 
         mg.addWidget(vs, 0, 0, 1, 2)
         mg.addWidget(hs,1,0,1,2)
-        self.statusline0=QLabel('')
-        self.statusline=QLabel('')
-        self.statusline.setWordWrap(True)
-        mg.addWidget(self.statusline,2,0,1,1)
-        mg.setColumnMinimumWidth(0,1200)
-        mg.addWidget(self.statusline0,2,1,1,1)
+        self.statusLineTL=QLabel('')
+        self.statusLineTR=QLabel('')
+        self.statusLineBL=QLabel('')
+        self.statusLineBR=QLabel('')
+        self.statusLineTL.setWordWrap(True)
+        self.statusLineTR.setWordWrap(True)
+        self.statusLineBL.setWordWrap(True)
+        self.statusLineBR.setWordWrap(True)
+        mg.addWidget(self.statusLineTL,2,0,1,1)
+        mg.addWidget(self.statusLineTR,2,1,1,1)
+        mg.addWidget(self.statusLineBL,3,0,1,1)
+        mg.addWidget(self.statusLineBR,3,1,1,1)
 
 
-        self.setCentralWidget(mw)
+        #self.setCentralWidget(mw)
 
         lw1 = QWidget()
         lg1 = QGridLayout()
         lb1=QLabel('WatchLists')
         self.watchListcombo=WatchListCombo()
-        self.watchLists = WatchLists(['Symbol', 'Bid', 'Last', 'Ask'])
-        lg1.addWidget(lb1,0,0,1,1,Qt.AlignRight)
-        lg1.addWidget(self.watchListcombo, 0, 1, 1, 1,Qt.AlignLeft)
+        self.watchLists = WatchLists(self,['Symbol', 'Bid', 'Last', 'Ask'])
+        lg1.addWidget(lb1,0,1,1,1,Qt.AlignRight)
+        lg1.addWidget(self.watchListcombo, 0, 2, 1, 1,Qt.AlignLeft)
         lg1.setColumnMinimumWidth(1,300)
         lb2=QLabel('Algo')
         self.algoCombo = AlgoCombo()
-        lg1.addWidget(lb2,0,2,1,1,Qt.AlignRight)
-        lg1.addWidget(self.algoCombo,0,3,1,1,Qt.AlignLeft)
-        lg1.addWidget(self.watchLists, 1, 0, 1, 4)
+        lg1.addWidget(lb2,0,3,1,1,Qt.AlignRight)
+        lg1.addWidget(self.algoCombo,0,4,1,1,Qt.AlignLeft)
+        lg1.addWidget(self.watchLists, 1, 0, 1, 5)
         lg1.setColumnMinimumWidth(3,300)
         lw1.setLayout(lg1)
         vs.addWidget(lw1)
@@ -871,7 +910,7 @@ class MainWindow(QMainWindow):
         lw2 = QWidget()
         lg2 = QGridLayout()
         lb2=QLabel('Positions')
-        self.openPositions = Positions(['Symbol','Qty','last','AveragePrice','Profit','FilledAt'])
+        self.openPositions = Positions(self,['Symbol','Qty','last','AveragePrice','Profit%','FilledAt'])
         lg2.addWidget(lb2,0,0,1,1)
         lg2.addWidget(self.openPositions,1,0,1,1)
         lw2.setLayout(lg2)
@@ -880,7 +919,7 @@ class MainWindow(QMainWindow):
         lw4 = QWidget()
         lg4 = QGridLayout()
         lb4=QLabel('Open Orders')
-        self.openOrders = OpenOrder(['Symbol','Type','Qty','LimitPrice','StopPrice','SubmittedAt','Id'])
+        self.openOrders = OpenOrder(self,['Symbol','Type','Qty','LimitPrice','StopPrice','SubmittedAt','Id'])
         lg4.addWidget(lb4,0,0,1,1)
         lg4.addWidget(self.openOrders,1,0,1,1)
         lw4.setLayout(lg4)
@@ -889,7 +928,7 @@ class MainWindow(QMainWindow):
         lw3 = QWidget()
         lg3 = QGridLayout()
         lb3=QLabel('Closed Orders')
-        self.closedOrders = ClosedOrder(['Symbol','Type','Qty','Price','FilledAt'])
+        self.closedOrders = ClosedOrder(self,['Symbol','Type','Qty','Price','FilledAt'])
         lg3.addWidget(lb3,2,0,1,1)
         lg3.addWidget(self.closedOrders,3,0,1,1)
         lw3.setLayout(lg3)
@@ -912,10 +951,12 @@ class MainWindow(QMainWindow):
         rg.addWidget(lb6,0,3,1,1,Qt.AlignRight)
         rg.addWidget(self.timeFrame,0,4,1,1,Qt.AlignLeft)
         rg.setColumnMinimumWidth(4,100)
-        self.chartview = ChartView()
+        self.chartview = ChartView(self)
         rg.addWidget(self.chartview,1,0,1,5)
         rw.setLayout(rg)
         hs.addWidget(rw)
+
+        self.statusLineBL.setText("BuyingPower: {}".format(self.buyingPower))
 
     def showsym(self):
         self.requestStockData.emit(self.ql51.text().upper(), self.timeFrame.currentText())
@@ -925,13 +966,17 @@ class MainWindow(QMainWindow):
     def displayAccountData(self,bp,pf):
         self.buyingPower=bp
         self.todaysProfit=pf
-        self.setWindowTitle("Alpaca Portfolio!.....  BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower,self.todaysProfit))
+        self.statusLineBL.setText("BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower,self.todaysProfit))
 
-    def statusMessage0(self,msg):
-        self.statusline0.setText(msg)
-    def statusMessage(self,msg):
-        print(msg)
-        self.statusline.setText(msg)
+    def statusMessageTL(self,msg):
+        self.statusLineTL.setText(msg)
+    def statusMessageTR(self,msg):
+        self.statusLineTR.setText(msg)
+    def statusMessageBL(self,msg):
+        self.statusLineBL.setText(msg)
+    def statusMessageBR(self, msg):
+        self.statusLineBR.setText(msg)
+
 
 #watch list combo
 class WatchListCombo(QComboBox):
@@ -955,8 +1000,9 @@ class WatchLists(QTableView):
 
     requestStockData = Signal(str, str)
 
-    def __init__(self,columns):
+    def __init__(self,window,columns):
         super().__init__()
+        self.window=window
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(columns)
         self.setAlternatingRowColors(True)
@@ -1035,12 +1081,12 @@ class WatchLists(QTableView):
             self.buy(self.selectedSymbol, abs(int(self.qty)),float(self.close))
 
     def sell(self,symbol, qty, price):
-        window.buySellDailog.sell(symbol,1,price)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.sell(symbol,1,price)
+        self.window.buySellDailog.exec_()
 
     def buy(self, symbol, qty , price):
-        window.buySellDailog.buy(symbol,1,price)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.buy(symbol,1,price)
+        self.window.buySellDailog.exec_()
 
     def addRow(self,columns):
         items = []
@@ -1060,8 +1106,8 @@ class WatchLists(QTableView):
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             symbol=self.selectionModel().selectedRows()[0].data()
-            window.timeFrame.symbol=symbol
-            self.requestStockData.emit(symbol, window.timeFrame.currentText())
+            self.window.timeFrame.symbol=symbol
+            self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
 #watch list combo
 class AlgoCombo(QComboBox):
@@ -1108,8 +1154,9 @@ class Positions(QTableView):
 
     requestStockData = Signal(str, str)
 
-    def __init__(self,columns):
+    def __init__(self,window, columns):
         super().__init__()
+        self.window=window
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(columns)
         self.setAlternatingRowColors(True)
@@ -1157,12 +1204,12 @@ class Positions(QTableView):
             self.buy(self.selectedSymbol, abs(int(self.qty)),float(self.close))
 
     def sell(self,symbol,qty,price):
-        window.buySellDailog.sell(symbol,qty,price)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.sell(symbol,qty,price)
+        self.window.buySellDailog.exec_()
 
     def buy(self, symbol, qty, price):
-        window.buySellDailog.buy(symbol,qty,price)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.buy(symbol,qty,price)
+        self.window.buySellDailog.exec_()
 
     def loadData(self,opos_df):
         self.model.removeRows(0,self.model.rowCount())
@@ -1180,8 +1227,8 @@ class Positions(QTableView):
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             symbol=self.selectionModel().selectedRows()[0].data()
-            window.timeFrame.symbol=symbol
-            self.requestStockData.emit(symbol, window.timeFrame.currentText())
+            self.window.timeFrame.symbol=symbol
+            self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def updateTick(self,symbol,data):
         self.setOneValue(symbol,str(data.close))
@@ -1211,8 +1258,9 @@ class OpenOrder(QTableView):
     requestCancelAll = Signal()
     requestStockData = Signal(str, str)
 
-    def __init__(self,columns):
+    def __init__(self,window, columns):
         super().__init__()
+        self.window=window
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(columns)
         self.setColumnWidth(4,200)
@@ -1248,8 +1296,8 @@ class OpenOrder(QTableView):
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             self.selectedSymbol=self.selectionModel().selectedRows()[0].data()
-            window.timeFrame.symbol=self.selectedSymbol
-            self.requestStockData.emit(self.selectedSymbol,window.timeFrame.currentText())
+            self.window.timeFrame.symbol=self.selectedSymbol
+            self.requestStockData.emit(self.selectedSymbol,self.window.timeFrame.currentText())
 
     def showContextMenu(self, pos):
         indexes = self.selectedIndexes()
@@ -1277,8 +1325,9 @@ class OpenOrder(QTableView):
 #closed order table
 class ClosedOrder(QTableView):
     requestStockData = Signal(str, str)
-    def __init__(self,columns):
+    def __init__(self,window,columns):
         super().__init__()
+        self.window=window
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(columns)
         self.setColumnWidth(4,200)
@@ -1309,8 +1358,8 @@ class ClosedOrder(QTableView):
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             symbol=self.selectionModel().selectedRows()[0].data()
-            window.timeFrame.symbol=symbol
-            self.requestStockData.emit(symbol, window.timeFrame.currentText())
+            self.window.timeFrame.symbol=symbol
+            self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
 #simple buy sell dialog
 class BuySellDialog(QDialog):
@@ -1368,8 +1417,9 @@ class BuySellDialog(QDialog):
 
 #Chartview
 class ChartView(QtCharts.QChartView):
-    def __init__(self):
+    def __init__(self,window):
         super().__init__()
+        self.window=window
         self.setRubberBand(self.HorizontalRubberBand)
         #self.setRubberBand(self.RectangleRubberBand)
         self.setMouseTracking(True)
@@ -1419,13 +1469,13 @@ class ChartView(QtCharts.QChartView):
         pass
 
     def add_cb1(self, pos):
-        window.buySellDailog.buy(self.chart().symbol,1,self.crosshairprice)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.buy(self.chart().symbol,1,self.crosshairprice)
+        self.window.buySellDailog.exec_()
 
 
     def add_cb2(self, pos):
-        window.buySellDailog.sell(self.chart().symbol,1,self.crosshairprice)
-        window.buySellDailog.exec_()
+        self.window.buySellDailog.sell(self.chart().symbol,1,self.crosshairprice)
+        self.window.buySellDailog.exec_()
 
 
     def mouseReleaseEvent(self, event):
@@ -1458,7 +1508,7 @@ class ChartView(QtCharts.QChartView):
     def updateTick(self,symbol,data):
         if self.newChart is not None:
             if self.newChart.symbol==symbol:
-                self.newChart.updateCandleStick(symbol,data.open,data.high,data.low,data.close,data.start,window.timeFrame.currentText())
+                self.newChart.updateCandleStick(symbol,data.open,data.high,data.low,data.close,data.start,self.window.timeFrame.currentText())
                 #self.viewport().repaint()
 
 #display chart
@@ -1601,135 +1651,175 @@ class Chart(QtCharts.QChart):
 
 # endregion
 
+class Env():
+    def __init__(self,env):
+
+        self.window = EnvWindow()
+        #self.window.show()
+
+        self.logging=   logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                        datefmt='%m-%d %H:%M',
+                        filename='portfolio.log',
+                        filemode='w')
+        self.env=env
+
+        # get keys form environment variable
+
+        # alpaca api
+        if env=='Paper':
+            try:
+                self.key_id = os.environ['PKEY_ID']
+                self.secret_key = os.environ['PSECRET_KEY']
+                self.base_url = os.environ['PBASE_URL']
+            except Exception as e:
+                raise Exception('Set API keys')
+            self.api = tradeapi.REST(self.key_id, self.secret_key, self.base_url)
+            self.conn = tradeapi.StreamConn(key_id=self.key_id, secret_key=self.secret_key, base_url=self.base_url)
+        if env=='Live':
+            try:
+                self.key_id = os.environ['KEY_ID']
+                self.secret_key = os.environ['SECRET_KEY']
+                self.base_url = os.environ['BASE_URL']
+            except Exception as e:
+                raise Exception('Set API keys')
+            self.api = tradeapi.REST(self.key_id, self.secret_key, self.base_url)
+            self.conn = tradeapi.StreamConn(key_id=self.key_id, secret_key=self.secret_key, base_url=self.base_url)
+
+
+        #portfolio related data
+        self.portfolioThread=QThread()
+        self.portfolio=Portfolio(self)
+        self.portfolio.moveToThread(self.portfolioThread)
+
+        # get minute history for list of symbol
+        self.minHistoryThread = QThread()
+        self.minHistory = MinuteHistory(self,100)
+        self.minHistory.moveToThread(self.minHistoryThread)
+
+        #algo selector
+        self.algoSelector=AlgoSelector()
+
+        # algo1
+        self.algo1Thread = QThread()
+        self.algo1 = Algo1(self)
+        self.algo1.moveToThread(self.algo1Thread)
+
+        # algo2
+        self.algo2Thread = QThread()
+        self.algo2 = Algo2(self)
+        self.algo2.moveToThread(self.algo2Thread)
+
+        #data stream
+        self.dataStream = StreamingData(self)
+        self.dataStream.setup(self.key_id, self.secret_key, self.base_url)
+
+        # watchlist selector
+        self.watchListSelector = WatchListSelector(self)
+
+    #endregion
+
+    def setupSignals(self):
+        # connect Logic and GUI signals
+        # fill GUI component when data is updated
+        try:
+            self.portfolio.positionsLoaded.connect(self.window.openPositions.loadData)
+            self.portfolio.openOrderLoaded.connect(self.window.openOrders.loadData)
+            self.portfolio.closedOrderLoaded.connect(self.window.closedOrders.loadData)
+            self.portfolio.stockDataReady.connect(self.window.chartview.loadChart)
+            self.portfolio.sendBuyingPower.connect(self.window.displayAccountData)
+            self.portfolio.sendMessageTL.connect(self.window.statusMessageBL)
+
+            self.window.watchLists.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.timeFrame.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.openPositions.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.openOrders.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.closedOrders.requestStockData.connect(self.portfolio.sendStockData)
+            self.window.openOrders.requestCancel.connect(self.portfolio.cancel)
+            self.window.openOrders.requestCancelAll.connect(self.portfolio.cancelAll)
+            self.window.buySellDailog.sellRequest.connect(self.portfolio.sell)
+            self.window.buySellDailog.buyRequest.connect(self.portfolio.buy)
+
+            self.dataStream.sendAccountData.connect(self.window.displayAccountData)
+            self.dataStream.sendQuote.connect(self.window.watchLists.updateQuote)
+            self.dataStream.sendTick.connect(self.window.watchLists.updateTick)
+            self.dataStream.sendTick.connect(self.window.openPositions.updateTick)
+            self.dataStream.sendTick.connect(self.window.chartview.updateTick)
+            self.dataStream.sendMTick.connect(self.window.chartview.updateTick)
+            self.dataStream.sendMessageTL.connect(self.window.statusMessageTL)
+            self.dataStream.sendMessageTR.connect(self.window.statusMessageTR)
+
+            self.watchListSelector.listOfWatchList.connect(self.window.watchListcombo.loadData)
+            self.window.watchListcombo.selectWatchList.connect(self.watchListSelector.selectWatchList)
+            self.watchListSelector.watchlistSelected.connect(self.window.watchLists.loadData)
+
+            self.algoSelector.listOfAlgo.connect(self.window.algoCombo.loadData)
+            self.window.algoCombo.selectAlgo.connect(self.algoSelector.selectAlgo)
+
+            self.minHistory.sendMessageBR.connect(self.window.statusMessageBR)
+            self.watchListSelector.sendMessageBR.connect(self.window.statusMessageBR)
+
+        except Exception as e:
+            pass
+
+        self.dataStream.getMinuteHistory.connect(self.minHistory.getHistory)
+
+    async def sendportfolio(self):
+        self.portfolio.sendPortFolio()
+
+    def run(self):
+        # start min history thread
+        self.minHistoryThread.start()
+
+        # load watch lists in GUI
+        self.watchListSelector.sendWatchListNames()
+
+        # load algo lists in GUI
+        self.algoSelector.sendAlgoNames()
+
+        # start the threads for algos
+        self.algo1Thread.start()
+        self.algo2Thread.start()
+
+        # Send positions, open orders, closed order to GUI
+        self.portfolioThread.started.connect(self.portfolio.sendPortFolio)
+        self.portfolioThread.start()
+
+        self.ael3 = AsyncEventLooper()
+        self.ael3.add_periodic_task(self.sendportfolio, 10)
+        self.ael3.start()
+
+        # get a lis of all symbols in the portfolio for subrcibing data from polugon
+        self.portfolioSymbols = self.portfolio.allSymbols()
+        self.channels = ['account_updates', 'trade_updates']
+        self.channels += self.dataStream.getChannels(self.portfolioSymbols)
+        self.dataStream.conn.loop.run_until_complete(asyncio.gather(self.dataStream.conn.subscribe(self.channels)))
+
+        self.t = threading.Thread(target=AsyncEventLooper.classasyncioLooper, args=(self.dataStream.conn.loop,))
+        self.t.start()
+
+
 if __name__ == "__main__":
-
-    # region Intilialize
-    #GUI
     app = QApplication(sys.argv)
+    mainWindow=MainWindow()
 
-    #get minute history for list of symbol
-    minHistoryThread=QThread()
-    minHistory=MinuteHistory()
-    minHistory.moveToThread(minHistoryThread)
+    #live env
+    live=Env('Live')
+    live.setupSignals()
+    live.run()
 
-    window=MainWindow()
-    window.show()
+    #stop the conn.loop for next env
+    live.dataStream.conn.loop.stop()
 
-    #portfolio related data
-    portfolioThread=QThread()
-    portfolio=Portfolio(api)
-    portfolio.moveToThread(portfolioThread)
-
-    #data stream
-    dataStream = StreamingData(key_id, secret_key, base_url)
-
-    #watchlist selector
-    watchListSelector=WatchListSelector()
-
-    #algo selector
-    algoSelector=AlgoSelector()
-
-    # algo1
-    algo1Thread = QThread()
-    algo1 = Algo1()
-    algo1.moveToThread(algo1Thread)
-
-    # algo2
-    algo2Thread = QThread()
-    algo2 = Algo2()
-    algo2.moveToThread(algo2Thread)
-
-    #endregion
-
-    # region Controller (Signals and slots)
-
-    # connect Logic and GUI signals
-    #fill GUI component when data is updated
-    try:
-        portfolio.positionsLoaded.connect(window.openPositions.loadData)
-        portfolio.openOrderLoaded.connect(window.openOrders.loadData)
-        portfolio.closedOrderLoaded.connect(window.closedOrders.loadData)
-        portfolio.stockDataReady.connect(window.chartview.loadChart)
-        portfolio.sendBuyingPower.connect(window.displayAccountData)
-        portfolio.sendMessage.connect(window.statusMessage)
-
-        window.watchLists.requestStockData.connect(portfolio.sendStockData)
-        window.timeFrame.requestStockData.connect(portfolio.sendStockData)
-        window.requestStockData.connect(portfolio.sendStockData)
-        window.openPositions.requestStockData.connect(portfolio.sendStockData)
-        window.openOrders.requestStockData.connect(portfolio.sendStockData)
-        window.closedOrders.requestStockData.connect(portfolio.sendStockData)
-        window.openOrders.requestCancel.connect(portfolio.cancel)
-        window.openOrders.requestCancelAll.connect(portfolio.cancelAll)
-        window.buySellDailog.sellRequest.connect(portfolio.sell)
-        window.buySellDailog.buyRequest.connect(portfolio.buy)
-
-        dataStream.sendAccountData.connect(window.displayAccountData)
-        dataStream.sendQuote.connect(window.watchLists.updateQuote)
-        dataStream.sendTick.connect(window.watchLists.updateTick)
-        dataStream.sendTick.connect(window.openPositions.updateTick)
-        dataStream.sendTick.connect(window.chartview.updateTick)
-        dataStream.sendMTick.connect(window.chartview.updateTick)
-        dataStream.sendMessage.connect(window.statusMessage)
-        dataStream.sendMessage0.connect(window.statusMessage0)
-
-        dataStream.getMinuteHistory.connect(minHistory.getHistory)
-        dataStream.runAlgo1.connect(algo1.runAlgo)
-        dataStream.runAlgo2.connect(algo2.runAlgo)
-        #dataStream.sendTick.connect(portfolio.saveTicks)
-        #dataStream.sendMTick.connect(portfolio.saveTicks)
-
-        watchListSelector.listOfWatchList.connect(window.watchListcombo.loadData)
-        window.watchListcombo.selectWatchList.connect(watchListSelector.selectWatchList)
-        watchListSelector.watchlistSelected.connect(window.watchLists.loadData)
-
-        algoSelector.listOfAlgo.connect(window.algoCombo.loadData)
-        window.algoCombo.selectAlgo.connect(algoSelector.selectAlgo)
+    # #paper env
+    paper = Env('Paper')
+    paper.setupSignals()
+    paper.run()
 
 
-    except Exception as e:
-        pass
-
-    # endregion
-
-    #region run
-
-    #Load GUI with data
-
-    #start min history thread
-    minHistoryThread.start()
-
-    # load watch lists in GUI
-    watchListSelector.sendWatchListNames()
-
-    # load algo lists in GUI
-    algoSelector.sendAlgoNames()
-
-    #start the threads for algos
-    algo1Thread.start()
-    algo2Thread.start()
-
-    #Send positions, open orders, closed order to GUI
-    portfolioThread.started.connect(portfolio.sendPortFolio)
-    portfolioThread.start()
-
-    async def sendportfolio():
-        portfolio.sendPortFolio()
-    ael3 = AsyncEventLooper()
-    ael3.add_periodic_task(sendportfolio, 10)
-    ael3.start()
-
-    #get a lis of all symbols in the portfolio for subrcibing data from polugon
-    portfolioSymbols=portfolio.allSymbols()
-    channels = ['account_updates','trade_updates']
-    channels+= dataStream.getChannels(portfolioSymbols)
-    dataStream.conn.loop.run_until_complete(asyncio.gather(dataStream.conn.subscribe(channels)))
-
-    #start the polygon streming loop in different thread, so that it wont block the program
-    t = threading.Thread(target=AsyncEventLooper.classasyncioLooper, args=(dataStream.conn.loop,))
-    t.start()
-
-
-    #run the main loop for GUI
+    mainWindow.tab1.layout().addWidget(live.window)
+    mainWindow.tab2.layout().addWidget(paper.window)
+    mainWindow.show()
     sys.exit(app.exec_())
-    #endregion
+
