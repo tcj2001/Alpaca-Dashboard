@@ -933,7 +933,7 @@ class WatchListTable(QTableView):
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
-        symbol=qsim.data()
+        symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
@@ -1020,7 +1020,7 @@ class Positions(QTableView):
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
-        symbol=qsim.data()
+        symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
@@ -1095,7 +1095,7 @@ class OpenOrder(QTableView):
             self.requestStockData.emit(self.selectedSymbol,self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
-        symbol=qsim.data()
+        symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
@@ -1163,7 +1163,7 @@ class ClosedOrder(QTableView):
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
-        symbol=qsim.data()
+        symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
@@ -1236,7 +1236,10 @@ class ChartView(QtCharts.QChartView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.showContextMenu)
         self.crosshairprice=0
-        self.newChart=None
+        #self.newChart=None
+        self.newChart = Chart()
+        self.setChart(self.newChart)
+
 
     def paintEvent(self, event):
         if self.chart().title()!="":
@@ -1306,8 +1309,8 @@ class ChartView(QtCharts.QChartView):
         self.viewport().repaint()
 
     def loadChart(self,symbol,history,positions,open_orders,closed_orders,type):
-        self.newChart=Chart()
-        self.setChart(self.newChart)
+        #self.newChart=Chart()
+        self.newChart.removeAllSeries()
         self.newChart.loadChart(symbol,history,positions,open_orders,closed_orders,type)
         self.viewport().repaint()
 
