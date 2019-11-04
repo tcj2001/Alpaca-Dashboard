@@ -246,10 +246,7 @@ class Portfolio(QObject):
         if symbol=='':
             return
         if timeFrame == 'Minute':
-            try:
-                history = self.stockHistory[symbol]
-            except Exception as e:
-                history = self.getMinutesHistory(symbol, 120)
+            history = self.getMinutesHistory(symbol, 120)
         if timeFrame == '5Minute':
             start = datetime.date(datetime.today() + relativedelta(days=-1))
             end = datetime.date(datetime.today() + timedelta(days=1))
