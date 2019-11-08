@@ -211,14 +211,14 @@ class FifteenMinuteHigh(Algos):
             qty = 0
             if self.env.portfolio.stockPosition.get(self.symbol) is not None:
                 qty = self.env.portfolio.stockPosition.get(self.symbol)
-            if close > last3barmax:
+            if close >= last3barmax:
                 if qty <= 0:
                     buyqty=1
                     if self.env.portfolio.buying_power > close * buyqty:
                         self.env.portfolio.stockOrdered[self.symbol] = True
                         self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo1')
 
-            if close < last3barmin:
+            if close <= last3barmin:
                 if qty > 0:
                     #avoid daytrade
                     if not(self.env.portfolio.stockFilledAt[self.symbol] is df.NaT or
@@ -260,13 +260,13 @@ class EMA20(Algos):
             qty=0
             if self.env.portfolio.stockPosition.get(self.symbol) is not None:
                 qty = self.env.portfolio.stockPosition.get(self.symbol)
-            if close > ema:
+            if close >= ema:
                 if qty <= 0:
                     buyqty=1
                     if self.env.portfolio.buying_power > close * buyqty:
                         self.env.portfolio.stockOrdered[self.symbol] = True
                         self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo2')
-            if close < ema:
+            if close <= ema:
                 if qty > 0:
                     #avoid daytrade
                     if not(self.env.portfolio.stockFilledAt[self.symbol] is df.NaT or
