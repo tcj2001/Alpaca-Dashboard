@@ -842,6 +842,7 @@ class pandasModel(QAbstractTableModel):
     def loadData(self, data):
         if not data.empty:
             data.set_index('symbol', drop=False, inplace=True)
+            data.index.name='sym'
             self._data = data
             if self._data is not None:
                 self.layoutAboutToBeChanged.emit()
