@@ -45,6 +45,7 @@ class Portfolio(QObject):
         self.stockPartialPosition = {}
         self.stockFilledAt = {}
         self.buying_power=0
+        self.selectedSymbol=None
 
     def snapshot(self,symbol):
         ss = self.api.polygon.snapshot(symbol)
@@ -70,11 +71,12 @@ class Portfolio(QObject):
                     self.stockFilledAt=dict(zip(self.opos_df['symbol'], self.opos_df['filled_at']))
                 #self.positionsLoaded.emit(self.opos_df)
             if symbol!='':
-                return self.opos_df[self.opos_df['symbol'] == symbol]
+                opos_df1=self.opos_df[self.opos_df['symbol'] == symbol]
+                return opos_df1[['symbol','qty','current_price','avg_entry_price','profit','filled_at']]
         except Exception as e:
-            self.opos_df = None
-            return None
-        return self.opos_df
+            self.opos_df = df.DataFrame()
+            return self.opos_df
+        return self.opos_df[['symbol','qty','current_price','avg_entry_price','profit','filled_at']]
 
     def loadOpenOrders(self,symbol=''):
         try:
@@ -84,11 +86,12 @@ class Portfolio(QObject):
                 oord_df['submitted_at']=df.to_datetime(oord_df['submitted_at']).dt.tz_convert('US/Eastern')
                 self.oord_df=oord_df.sort_values(by='submitted_at', ascending=False)
             if symbol!='':
-                return self.oord_df[self.oord_df['symbol'] == symbol]
+                oord_df1 =  self.oord_df[self.oord_df['symbol'] == symbol]
+                return oord_df1[['symbol','side','type','qty','limit_price','stop_price','submitted_at','id']]
         except Exception as e:
-            self.oord_df=None
-            return None
-        return self.oord_df
+            self.oord_df=df.DataFrame()
+            return self.oord_df
+        return self.oord_df[['symbol','side','type','qty','limit_price','stop_price','submitted_at','id']]
 
     def loadClosedOrders(self,symbol=''):
         try:
@@ -102,11 +105,12 @@ class Portfolio(QObject):
             if symbol!='':
                 cord_df1 = self.cord_df[self.cord_df['symbol'] == symbol]
                 #self.closedOrderLoaded.emit(cord_df1)
-                return cord_df1
+                return cord_df1[['symbol','side','type','qty','filled_avg_price','filled_at']]
         except Exception as e:
-            self.cord_df=None
-            return None
-        return cord_df
+            self.cord_df=df.DataFrame()
+            return self.cord_df
+        self.cord_df.set_index('symbol', drop=False, inplace=True)
+        return self.cord_df[['symbol','side','type','qty','filled_avg_price','filled_at']]
 
     def lastOrderAt(self,cord_df):
         try:
@@ -115,22 +119,22 @@ class Portfolio(QObject):
             lord_s = lord_df.groupby(['symbol'])['filled_at'].first()
             return lord_s
         except Exception as e:
-            return None
+            return df.DataFrame()
 
     def allSymbols(self):
         self.symbols=[]
         try:
-            if self.oord_df is not None:
+            if not self.oord_df.empty:
                 self.symbols = list(set(self.symbols) | set(self.oord_df['symbol']))
         except Exception as e:
             pass
         try:
-            if self.opos_df is not None:
+            if not self.opos_df.empty:
                 self.symbols = list(set(self.symbols) | set(self.opos_df['symbol']))
         except Exception as e:
             pass
         try:
-            if self.cord_df is not None:
+            if not self.cord_df.empty:
                 self.symbols = list(set(self.symbols) | set(self.cord_df['symbol']))
         except Exception as e:
             pass
@@ -202,6 +206,9 @@ class Portfolio(QObject):
         except Exception as e:
             self.sendMessageTL.emit(e.args[0])
 
+    def setSelectedSymbol(self,symbol):
+        self.selectedSymbol=symbol
+
     def saveHistory(self, symbol, history):
         self.stockHistory[symbol]=history
 
@@ -270,12 +277,12 @@ class Portfolio(QObject):
         self.cord_df = self.loadClosedOrders()
         self.lord_df = self.lastOrderAt(self.cord_df)
         self.opos_df = self.loadOpenPosition(self.lord_df)
+        self.account=self.api.get_account()
+        self.buying_power=float(self.account.buying_power)
 
         self.positionsLoaded.emit(self.opos_df)
         self.openOrderLoaded.emit(self.oord_df)
         self.closedOrderLoaded.emit(self.cord_df)
-        self.account=self.api.get_account()
-        self.buying_power=float(self.account.buying_power)
         self.sendBuyingPower.emit(float(self.account.buying_power),float(self.account.last_equity)-float(self.account.equity))
 
 #handles polygon data
@@ -286,7 +293,7 @@ class StreamingData(QObject):
     sendQuote=Signal(str,dict)
     sendTrade=Signal(str,dict)
     sendTick=Signal(str,dict)
-    sendMTick = Signal(str, dict)
+    sendChartTick = Signal(str, dict)
     sendAccountData = Signal(float,float)
     getMinuteHistory = Signal()
 
@@ -327,6 +334,8 @@ class StreamingData(QObject):
             #print(self.base_url)
             self.sendMessageTR.emit('{}:{}'.format(data.symbol,data.close))
             self.sendTick.emit(data.symbol,data)
+            if data.symbol==self.env.portfolio.selectedSymbol:
+                self.sendChartTick.emit(data.symbol, data)
             self.portfolio.saveTicks(data.symbol,data)
             for obj in self.env.algosubclasses:
                 obj.setData(data.symbol,data)
@@ -336,7 +345,9 @@ class StreamingData(QObject):
         @conn.on('AM')
         async def on_minute_messages(conn, channel, data):
             self.sendMessageTR.emit('{}:{}'.format(data.symbol,data.close))
-            self.sendMTick.emit(data.symbol, data)
+            self.sendTick.emit(data.symbol, data)
+            if data.symbol==self.env.portfolio.selectedSymbol:
+                self.sendChartTick.emit(data.symbol, data)
             self.portfolio.saveTicks(data.symbol,data)
             for obj in self.env.algosubclasses:
                 obj.setData(data.symbol,data)
@@ -409,8 +420,9 @@ class WatchListData(QObject):
                 wlist = [[symbol, 0, 0, 0] for symbol in self.symbols]
 
             self.wl_df = df.DataFrame.from_records(wlist)
+            self.wl_df.rename(columns={0:'symbol',1:'bid',2:'current_price',3:'ask'}, inplace=True)
             if not self.wl_df.empty:
-                self.symbols = self.wl_df[0].tolist()
+                self.symbols = self.wl_df['symbol'].tolist()
 
     def getSymbols(self):
         return self.symbols
@@ -444,16 +456,19 @@ class WatchListSelector(QObject):
     watchlistSelected = Signal(df.DataFrame)
     listOfWatchList = Signal(list,str)
     sendMessageBR=Signal(str)
+    subscribeSymbols = Signal(list)
 
     def __init__(self,env):
         super().__init__()
         self.env=env
         self.dataStream=env.dataStream
         self.watchLists = [x.name for x in self.env.watchlistsobject]
+        self.selectedWatchListName=None
 
     def selectWatchList(self, id):
         for obj in self.env.watchlistsobject:
             if obj.name == id:
+                self.selectedWatchListName=id
                 obj.load()
                 symbols = obj.getSymbols()
                 wl = WatchListData(self.env.api, symbols)
@@ -482,7 +497,7 @@ class WatchListSelector(QObject):
             self.watchLists = [x.name for x in self.env.watchlistsobject]
             self.sendWatchListNames(watchlistname)
         else:
-            watchlistname=self.watchListcombo.currentText()
+            watchlistname=self.selectedWatchListName
             symbol=txt.upper()
             found=False
             for obj in self.env.watchlistsobject:
@@ -593,7 +608,6 @@ class MainWindow(QMainWindow):
 class EnvWindow(QWidget):
 
     requestStockData = Signal(str, str)
-    subscribeSymbols = Signal(list)
     addSymbolToWatchlist = Signal(str)
 
 
@@ -613,7 +627,6 @@ class EnvWindow(QWidget):
         lb51=QLabel('Symbol')
         trowl.addWidget(lb51,0,0,1,1,Qt.AlignRight)
         self.newSymbol = QLineEdit()
-        self.newSymbol.setMaxLength(10)
         self.newSymbol.setMaximumWidth(100)
         trowl.addWidget(self.newSymbol,0,1,1,1,Qt.AlignLeft)
         self.addButton=QPushButton("Add")
@@ -650,15 +663,16 @@ class EnvWindow(QWidget):
 
         lw1 = QWidget()
         lg1 = QGridLayout()
-        self.watchListTable = WatchListTable(self, ['Symbol', 'Bid', 'Last', 'Ask'])
+        self.watchListTable = WatchListTable(self)
         lg1.addWidget(self.watchListTable, 1, 0, 1, 1)
         lw1.setLayout(lg1)
         vs.addWidget(lw1)
 
+
         lw2 = QWidget()
         lg2 = QGridLayout()
         lb2=QLabel('Positions')
-        self.openPositions = Positions(self,['Symbol','Qty','last','AveragePrice','Profit%','FilledAt'])
+        self.openPositions = Positions(self)
         lg2.addWidget(lb2,0,0,1,1)
         lg2.addWidget(self.openPositions,1,0,1,1)
         lw2.setLayout(lg2)
@@ -667,7 +681,7 @@ class EnvWindow(QWidget):
         lw4 = QWidget()
         lg4 = QGridLayout()
         lb4=QLabel('Open Orders')
-        self.openOrders = OpenOrder(self,['Symbol','Type','Qty','LimitPrice','StopPrice','SubmittedAt','Id'])
+        self.openOrders = OpenOrder(self)
         lg4.addWidget(lb4,0,0,1,1)
         lg4.addWidget(self.openOrders,1,0,1,1)
         lw4.setLayout(lg4)
@@ -676,11 +690,12 @@ class EnvWindow(QWidget):
         lw3 = QWidget()
         lg3 = QGridLayout()
         lb3=QLabel('Closed Orders')
-        self.closedOrders = ClosedOrder(self,['Symbol','Type','Qty','Price','FilledAt'])
+        self.closedOrders = ClosedOrder(self)
         lg3.addWidget(lb3,2,0,1,1)
         lg3.addWidget(self.closedOrders,3,0,1,1)
         lw3.setLayout(lg3)
         vs.addWidget(lw3)
+        vs.setMinimumWidth(900)
         #endregion
 
         #region middle right
@@ -817,68 +832,112 @@ class TimeFrame(QComboBox):
         self.requestStockData.emit(self.symbol, self.currentText())
         pass
 
+class pandasModel(QAbstractTableModel):
+
+    def __init__(self,name):
+        QAbstractTableModel.__init__(self)
+        self._data = df.DataFrame()
+        self.name=name
+
+    def loadData(self, data):
+        if not data.empty:
+            data.set_index('symbol', drop=False, inplace=True)
+            self._data = data
+            if self._data is not None:
+                self.layoutAboutToBeChanged.emit()
+                self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+                self.layoutChanged.emit()
+        else:
+            self._data = df.DataFrame()
+            self.layoutAboutToBeChanged.emit()
+            self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+            self.layoutChanged.emit()
+
+    def updateTick(self,symbol,data):
+        if not self._data.empty:
+            try:
+                if not self._data.loc[symbol].empty:
+                    self._data.at[symbol,'current_price']=data.close
+                    if self.name=='Positions':
+                        ap=float(self._data.at[symbol, 'avg_entry_price'])
+                        qty = int(self._data.at[symbol, 'qty'])
+                        profit=round((qty*data.close-qty*ap)/abs(qty*ap) * 100,2)
+                        self._data.at[symbol, 'profit'] = profit
+                    self.layoutAboutToBeChanged.emit()
+                    self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+                    self.layoutChanged.emit()
+            except Exception as e:
+                pass
+
+    def updateQuote(self,symbol,data):
+        if not self._data.empty:
+            try:
+                if not self._data.loc[symbol].empty:
+                    if self.name=='Watchlists':
+                        self._data.at[symbol,'bid']=data.bidprice
+                        self._data.at[symbol,'ask']=data.askprice
+                    self.layoutAboutToBeChanged.emit()
+                    self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+                    self.layoutChanged.emit()
+            except Exception as e:
+                pass
+
+    def rowCount(self, parent=None):
+        if not self._data.empty:
+            return self._data.shape[0]
+        return 0
+
+    def columnCount(self, parnet=None):
+        if not self._data.empty:
+            return self._data.shape[1]
+        return 0
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not self._data.empty:
+            if index.isValid():
+                if role == Qt.DisplayRole:
+                    return str(self._data.iloc[index.row(), index.column()])
+            return None
+        return None
+
+    def headerData(self, col, orientation, role):
+        if not self._data.empty:
+            if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+                return self._data.columns[col]
+            return None
+
+    def sort(self, col, order):
+        if not self._data.empty:
+            self.emit(SIGNAL("layoutAboutToBeChanged()"))
+            name=self._data.columns[col]
+            if order == Qt.DescendingOrder:
+                self._data.sort_values(by=[name],ascending=False, inplace=True)
+            else:
+                self._data.sort_values(by=[name], inplace=True)
+            self.emit(SIGNAL("layoutChanged()"))
+
+
 #watchlist table
 class WatchListTable(QTableView):
 
     requestStockData = Signal(str, str)
+    selecetedSymbolSignal = Signal(str)
 
-    def __init__(self,window,columns):
+    def __init__(self,window):
         super().__init__()
         self.window=window
-        self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(columns)
         self.setAlternatingRowColors(True)
         self.setAutoScroll(True)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
-        self.setModel(self.model)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.showContextMenu)
         self.setSortingEnabled(True)
-
-        self.qSortFilterProxyModel = QSortFilterProxyModel()
-        self.qSortFilterProxyModel.setSourceModel(self.model)
-        self.qSortFilterProxyModel.setFilterKeyColumn(0)
-        self.qSortFilterProxyModel.setFilterCaseSensitivity(Qt.CaseSensitive)
-
-        self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.clicked.connect(self.handleClicked)
-
-    def updateTick(self,symbol,data):
-        self.setOneValue(symbol,2,str(data.close))
-
-    def setOneValue(self,key,setColumn1,value1):
-        self.qSortFilterProxyModel.setFilterFixedString(key);
-        i=0
-        found=False
-        while i < self.qSortFilterProxyModel.rowCount():
-            if self.qSortFilterProxyModel.index(i,0).data()==key:
-                found=True
-                break
-            i+=1
-        if found:
-            index = self.qSortFilterProxyModel.mapToSource(self.qSortFilterProxyModel.index(i, 0));
-            if index.isValid():
-               self.model.setData(index.sibling(index.row(), setColumn1),value1)
-
-    def updateQuote(self,symbol,data):
-        self.setTwoValue(symbol,1,str(data.bidprice),3,str(data.askprice))
-
-    def setTwoValue(self,key,setColumn1,value1,setColumn2,value2):
-        self.qSortFilterProxyModel.setFilterFixedString(key);
-        i=0
-        found=False
-        while i < self.qSortFilterProxyModel.rowCount():
-            if self.qSortFilterProxyModel.index(i,0).data()==key:
-                found=True
-                break
-            i+=1
-        if found:
-            index = self.qSortFilterProxyModel.mapToSource(self.qSortFilterProxyModel.index(i, 0));
-            if index.isValid():
-               self.model.setData(index.sibling(index.row(), setColumn1),value1)
-               self.model.setData(index.sibling(index.row(), setColumn2),value2)
+        self.model=pandasModel('Watchlists')
+        self.setModel(self.model)
+        self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
+        self.customContextMenuRequested.connect(self.showContextMenu)
 
 
     def showContextMenu(self, pos):
@@ -912,64 +971,40 @@ class WatchListTable(QTableView):
         self.window.buySellDailog.buy(symbol,1,price)
         self.window.buySellDailog.exec_()
 
-    def addRow(self,columns):
-        items = []
-        for c in columns:
-            items.append(QStandardItem(c))
-        self.model.appendRow(tuple(items))
-        return items
-
-    def loadData(self,wl_df):
-        self.model.removeRows(0,self.model.rowCount())
-        for row in wl_df.iterrows():
-            self.addRow([str(row[1][0]),str(row[1][1]),str(row[1][2]),str(row[1][3])])
-        self.resizeRowsToContents()
-        #self.resizeColumnsToContents()
-
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__() != 0:
             symbol = self.selectionModel().selectedRows()[0].data()
             self.window.timeFrame.symbol = symbol
+            self.selecetedSymbolSignal.emit(symbol)
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
         symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
+        self.selecetedSymbolSignal.emit(symbol)
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
 #positions table
 class Positions(QTableView):
 
     requestStockData = Signal(str, str)
+    selecetedSymbolSignal = Signal(str)
 
-    def __init__(self,window, columns):
+    def __init__(self,window):
         super().__init__()
         self.window=window
-        self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(columns)
         self.setAlternatingRowColors(True)
         self.setAutoScroll(True)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
-        self.setModel(self.model)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.showContextMenu)
-        self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
-        self.clicked.connect(self.handleClicked)
         self.setSortingEnabled(True)
-        self.qSortFilterProxyModel = QSortFilterProxyModel()
-        self.qSortFilterProxyModel.setSourceModel(self.model)
-        self.qSortFilterProxyModel.setFilterKeyColumn(0)
-        self.qSortFilterProxyModel.setFilterCaseSensitivity(Qt.CaseSensitive)
-        self.setColumnWidth(5, 200)
-
-    def addRow(self,columns):
-        items = []
-        for c in columns:
-            items.append(QStandardItem(c))
-        self.model.appendRow(items)
-        return items
+        self.model=pandasModel('Positions')
+        self.setModel(self.model)
+        self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
+        self.customContextMenuRequested.connect(self.showContextMenu)
+        self.setColumnWidth(0,300)
 
     def showContextMenu(self, pos):
         indexes = self.selectedIndexes()
@@ -1000,50 +1035,18 @@ class Positions(QTableView):
         self.window.buySellDailog.buy(symbol,qty,price)
         self.window.buySellDailog.exec_()
 
-    def loadData(self,opos_df):
-        self.model.removeRows(0,self.model.rowCount())
-        if opos_df  is not None:
-            for row in opos_df.iterrows():
-                filledat=''
-                try:
-                    filledat=row[1]['filled_at'].strftime('%Y-%m-%d %H:%M:%S')
-                except Exception as e:
-                    pass
-                p = self.addRow([row[1]['symbol'], str(int(row[1]['qty'])).rjust(5), str(row[1]['current_price']), str(round(float(row[1]['avg_entry_price']),2)),'{:.2f}'.format(row[1]['profit']),filledat])
-            self.resizeRowsToContents()
-            #self.resizeColumnsToContents()
-
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             symbol=self.selectionModel().selectedRows()[0].data()
             self.window.timeFrame.symbol=symbol
+            self.selecetedSymbolSignal.emit(symbol)
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
         symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
+        self.selecetedSymbolSignal.emit(symbol)
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
-
-    def updateTick(self,symbol,data):
-        self.setOneValue(symbol,str(data.close))
-
-    def setOneValue(self,key,value1):
-        self.qSortFilterProxyModel.setFilterFixedString(key);
-        i=0
-        found=False
-        while i < self.qSortFilterProxyModel.rowCount():
-            if self.qSortFilterProxyModel.index(i,0).data()==key:
-                found=True
-                break
-            i+=1
-        if found:
-            index = self.qSortFilterProxyModel.mapToSource(self.qSortFilterProxyModel.index(i, 0));
-            ap = index.sibling(index.row(), 3).data()
-            qty = index.sibling(index.row(), 1).data()
-            profit = round((float(value1)*int(qty)-float(ap)*float(qty))/abs(int(qty) * float(ap))*100,2)
-            if index.isValid():
-               self.model.setData(index.sibling(index.row(), 2),str(value1))
-               self.model.setData(index.sibling(index.row(), 4),str(profit))
 
 #open order table
 class OpenOrder(QTableView):
@@ -1051,52 +1054,39 @@ class OpenOrder(QTableView):
     requestCancel = Signal(str,str)
     requestCancelAll = Signal()
     requestStockData = Signal(str, str)
+    selecetedSymbolSignal = Signal(str)
 
-    def __init__(self,window, columns):
+    def __init__(self,window):
         super().__init__()
         self.window=window
-        self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(columns)
         self.setColumnWidth(4,200)
         self.setAlternatingRowColors(True)
         self.setAutoScroll(True)
+        self.setSortingEnabled(True)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
-        self.setModel(self.model)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.showContextMenu)
+        self.model = pandasModel('OpenOrders')
+        self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.clicked.connect(self.handleClicked)
         self.selectedSymbol=None
         self.id=None
-        self.setSortingEnabled(True)
 
-    def addRow(self,columns):
-        items = []
-        for c in columns:
-            items.append(QStandardItem(c))
-        self.model.appendRow(tuple(items))
-        return items
-
-    def loadData(self,oord_df):
-        #print('load open order called.........................................................')
-        self.model.removeRows(0,self.model.rowCount())
-        if oord_df is not None:
-            for row in oord_df.iterrows():
-                p = self.addRow([row[1]['symbol'],row[1]['side'], str(row[1]['qty']).rjust(5), str(row[1]['limit_price']), str(row[1]['stop_price']), row[1]['submitted_at'].strftime('%Y-%m-%d %H:%M:%S'),row[1]['id']])
-            self.resizeRowsToContents()
-            self.resizeColumnsToContents()
 
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             self.selectedSymbol=self.selectionModel().selectedRows()[0].data()
             self.window.timeFrame.symbol=self.selectedSymbol
+            self.selecetedSymbolSignal.emit(self.selectedSymbol)
             self.requestStockData.emit(self.selectedSymbol,self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
         symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
+        self.selecetedSymbolSignal.emit(symbol)
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def showContextMenu(self, pos):
@@ -1124,47 +1114,37 @@ class OpenOrder(QTableView):
 
 #closed order table
 class ClosedOrder(QTableView):
+
     requestStockData = Signal(str, str)
-    def __init__(self,window,columns):
+    selecetedSymbolSignal = Signal(str)
+
+    def __init__(self,window):
         super().__init__()
         self.window=window
-        self.model = QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(columns)
         self.setColumnWidth(4,200)
         self.setAlternatingRowColors(True)
         self.setAutoScroll(True)
+        self.setSortingEnabled(True)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
+        self.model = pandasModel('ClosedOrders')
         self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.clicked.connect(self.handleClicked)
-        self.setSortingEnabled(True)
 
-    def addRow(self,columns):
-        items = []
-        for c in columns:
-            items.append(QStandardItem(c))
-        self.model.appendRow(tuple(items))
-        return items
-
-    def loadData(self,cord_df):
-        self.model.removeRows(0,self.model.rowCount())
-        if cord_df is not None:
-            for row in cord_df.iterrows():
-                p = self.addRow([row[1]['symbol'],row[1]['side'], str(row[1]['qty']).rjust(5), str(row[1]['filled_avg_price']), row[1]['filled_at'].strftime('%Y-%m-%d -%H:%M:%S')])
-            self.resizeRowsToContents()
-            self.resizeColumnsToContents()
 
     def handleSelectionChanged(self, selected, deselected):
         if selected.indexes().__len__()!=0:
             symbol=self.selectionModel().selectedRows()[0].data()
             self.window.timeFrame.symbol=symbol
+            self.selecetedSymbolSignal.emit(symbol)
             self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
     def handleClicked(self, qsim):
         symbol = self.selectionModel().selectedRows()[0].data()
         self.window.timeFrame.symbol=symbol
+        self.selecetedSymbolSignal.emit(symbol)
         self.requestStockData.emit(symbol, self.window.timeFrame.currentText())
 
 #simple buy sell dialog
@@ -1578,9 +1558,9 @@ class Env():
         # connect Logic and GUI signals
         # fill GUI component when data is updated
         try:
-            self.portfolio.positionsLoaded.connect(self.window.openPositions.loadData)
-            self.portfolio.openOrderLoaded.connect(self.window.openOrders.loadData)
-            self.portfolio.closedOrderLoaded.connect(self.window.closedOrders.loadData)
+            self.portfolio.positionsLoaded.connect(self.window.openPositions.model.loadData)
+            self.portfolio.openOrderLoaded.connect(self.window.openOrders.model.loadData)
+            self.portfolio.closedOrderLoaded.connect(self.window.closedOrders.model.loadData)
             self.portfolio.stockDataReady.connect(self.window.chartview.loadChart)
             self.portfolio.sendBuyingPower.connect(self.window.displayAccountData)
             self.portfolio.sendMessageTL.connect(self.window.statusMessageTL)
@@ -1595,26 +1575,32 @@ class Env():
             self.window.openOrders.requestCancelAll.connect(self.portfolio.cancelAll)
             self.window.buySellDailog.sellRequest.connect(self.portfolio.sell)
             self.window.buySellDailog.buyRequest.connect(self.portfolio.buy)
-            self.window.subscribeSymbols.connect(self.dataStream.subscribeSymbols)
             self.window.addSymbolToWatchlist.connect(self.watchListSelector.addSymbol)
 
+            self.window.watchListTable.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
+            self.window.openPositions.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
+            self.window.openOrders.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
+            self.window.closedOrders.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
+            self.window.addSymbolToWatchlist.connect(self.portfolio.setSelectedSymbol)
+
             self.dataStream.sendAccountData.connect(self.window.displayAccountData)
-            self.dataStream.sendQuote.connect(self.window.watchListTable.updateQuote)
-            self.dataStream.sendTick.connect(self.window.watchListTable.updateTick)
-            self.dataStream.sendTick.connect(self.window.openPositions.updateTick)
-            self.dataStream.sendTick.connect(self.window.chartview.updateTick)
-            self.dataStream.sendMTick.connect(self.window.chartview.updateTick)
             self.dataStream.sendMessageTL.connect(self.window.statusMessageTL)
             self.dataStream.sendMessageTR.connect(self.window.statusMessageTR)
             self.dataStream.sendMessageBR.connect(self.window.statusMessageBR)
 
+            self.dataStream.sendQuote.connect(self.window.watchListTable.model.updateQuote)
+            self.dataStream.sendTick.connect(self.window.watchListTable.model.updateTick)
+            self.dataStream.sendTick.connect(self.window.openPositions.model.updateTick)
+            self.dataStream.sendChartTick.connect(self.window.chartview.updateTick)
+
             self.watchListSelector.listOfWatchList.connect(self.window.watchListcombo.loadData)
             self.window.watchListcombo.selectWatchList.connect(self.watchListSelector.selectWatchList)
-            self.watchListSelector.watchlistSelected.connect(self.window.watchListTable.loadData)
+            self.watchListSelector.watchlistSelected.connect(self.window.watchListTable.model.loadData)
+            self.watchListSelector.subscribeSymbols.connect(self.dataStream.subscribeSymbols)
 
             self.scannerSelector.listOfScanner.connect(self.window.scannercombo.loadData)
             self.window.scannercombo.selectScannerList.connect(self.scannerSelector.selectScanner)
-            self.scannerSelector.scannerSelected.connect(self.window.watchListTable.loadData)
+            self.scannerSelector.scannerSelected.connect(self.window.watchListTable.model.loadData)
 
             self.algoSelector.listOfAlgo.connect(self.window.algoCombo.loadData)
             self.window.algoCombo.selectAlgo.connect(self.algoSelector.selectAlgo)
@@ -1651,7 +1637,7 @@ class Env():
         self.portfolioThread.start()
 
         self.ael3 = AsyncEventLooper()
-        self.ael3.add_periodic_task(self.sendportfolio, 10)
+        self.ael3.add_periodic_task(self.sendportfolio, 300)
         self.ael3.start()
 
 
