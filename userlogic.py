@@ -196,12 +196,12 @@ class FifteenMinuteHigh(Algos):
             # not enough history
             if self.env.portfolio.stockHistory.get(self.symbol) is None:
                 return
+            #print(self.env.env, self.__class__.__name__,self.symbol)
             #check algo starttime
             ts = self.data.start
             ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
             if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
                 return
-            # print('algo1 ',self.symbol)
             # write your algo here
             study = Study(self.env.portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
             studyHistory = study.getHistory()
@@ -250,7 +250,7 @@ class EMA20(Algos):
             ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
             if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
                 return
-            # print('algo1 ',self.symbol)
+            #print(self.env.env, self.__class__.__name__,self.symbol)
             # write your algo here
             study = Study(self.env.portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
             study.addEMA(20)
@@ -291,7 +291,7 @@ class HighOfTheDayScanner(Scanners):
         self.volume=volume
 
     async def loop(self):
-        print('high of day  starting')
+        #print('high of day  starting')
         self.account = self.env.api.get_account()
         self.assets = self.env.api.list_assets()
         self.symbols = [asset.symbol for asset in self.assets if asset.tradable]
@@ -315,7 +315,7 @@ class HighOfTheDayScanner(Scanners):
         if self.selectedSymbols is not None:
             channels = self.env.dataStream.getChannels(self.selectedSymbols)
             await self.env.dataStream.conn.subscribe(channels)
-        print('high of day  done')
+        #print('high of day  done')
 
 # stocks with top count of close above ema
 class TopEmaCountScanner(Scanners):
@@ -336,7 +336,7 @@ class TopEmaCountScanner(Scanners):
         self.volume=volume
 
     async def loop(self):
-        print('top20ema  starting')
+        #print('top20ema  starting')
         symbols=["AMD","WFC","SQ","ABBV","FB","AAPL","GS","C","KO","WDC","NKE","WMT","TGT","CSCO","COST","ORLY","LABD","V","MA","BABA","JD","WB","DIS","LK","TWLO","CSX","Z","BIDU","MCD","DVN","ACB","GILD","QQQ","SBUX","WBA","STX","AMZN","FAST","NFLX","CELG","AMAT","UPS","FDX","DELL","SNAP","TWTR","DWT","JBLU","AKS","CMG","DB","GLD","LABU","DGAZ","UGAZ","UAL","NUGT","WYNN","NTES","SIRI","AMGN","MAR","ROST","DLTR","LULU","AEM","UWT","H","FAS","LVS","JNPR","PAYC","CRON","DD","URI","MOS","CLDR","WYND","RH","EA","NOK","HTZ","WSM","SHOP","OKTA","IMMU","CRWD","JNUG","IBM","WORK","ADI","DHI","KB","TOL","PEP","BYND","CLX","MU","OSTK","ROKU","ULTA"]
         sdf = df.DataFrame(columns=['symbol', 'count'])
         sdf.set_index('symbol', inplace=True)
@@ -372,7 +372,7 @@ class TopEmaCountScanner(Scanners):
             channels = self.env.dataStream.getChannels(self.selectedSymbols)
             await self.env.dataStream.conn.subscribe(channels)
 
-        print('top20ema  done')
+        #print('top20ema  done')
 
 #endregion
 
