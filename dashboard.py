@@ -322,6 +322,7 @@ class StreamingData(QObject):
 
         @conn.on('trade_updates')
         async def on_trade_updates(conn, channel, data):
+            self.sendTrade.emit(data.symbol, data)
             if data.event=='new':
                 self.sendMessageTL.emit("new {} order placed for {} with {} qty at {}".format(data.order['side'], data.order['symbol'], data.order['qty'], data.order['submitted_at']))
             if data.event=='partially_filled':
@@ -355,7 +356,7 @@ class StreamingData(QObject):
 
         @conn.on('T')
         async def on_trade_messages(conn, channel, data):
-            self.sendTrade.emit(data.symbol, data)
+            pass
 
         @conn.on('Q')
         async def on_quote_messages(conn, channel, data):
@@ -841,8 +842,6 @@ class pandasModel(QAbstractTableModel):
 
     def loadData(self, data):
         if not data.empty:
-            data.set_index('symbol', drop=False, inplace=True)
-            data.index.name='sym'
             self._data = data
             if self._data is not None:
                 self.layoutAboutToBeChanged.emit()
@@ -857,15 +856,20 @@ class pandasModel(QAbstractTableModel):
     def updateTick(self,symbol,data):
         if not self._data.empty:
             try:
-                if not self._data.loc[symbol].empty:
-                    self._data.at[symbol,'current_price']=data.close
+                if not self._data.loc[self._data['symbol']==symbol].empty:
+                    row=self._data.loc[self._data['symbol']==symbol].index[0]
+                    self._data.at[row,'current_price']=data.close
                     if self.name=='Positions':
-                        ap=float(self._data.at[symbol, 'avg_entry_price'])
-                        qty = int(self._data.at[symbol, 'qty'])
-                        profit=round((qty*data.close-qty*ap)/abs(qty*ap) * 100,2)
-                        self._data.at[symbol, 'profit'] = profit
+                        try:
+                            ap=float(self._data.at[row, 'avg_entry_price'])
+                            qty = int(self._data.at[row, 'qty'])
+                            profit=round((qty*data.close-qty*ap)/abs(qty*ap) * 100,2)
+                        except Exception as e:
+                            profit=0
+                            pass
+                        self._data.at[row, 'profit'] = profit
                     self.layoutAboutToBeChanged.emit()
-                    self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+                    self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
                     self.layoutChanged.emit()
             except Exception as e:
                 pass
@@ -873,12 +877,13 @@ class pandasModel(QAbstractTableModel):
     def updateQuote(self,symbol,data):
         if not self._data.empty:
             try:
-                if not self._data.loc[symbol].empty:
+                if not self._data.loc[self._data['symbol']==symbol].empty:
+                    row=self._data.loc[self._data['symbol']==symbol].index[0]
                     if self.name=='Watchlists':
-                        self._data.at[symbol,'bid']=data.bidprice
-                        self._data.at[symbol,'ask']=data.askprice
+                        self._data.at[row,'bid']=data.bidprice
+                        self._data.at[row,'ask']=data.askprice
                     self.layoutAboutToBeChanged.emit()
-                    self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+                    self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
                     self.layoutChanged.emit()
             except Exception as e:
                 pass
