@@ -208,7 +208,7 @@ class FifteenMinuteHigh(Algos):
             # not enough history
             if self.env.portfolio.stockHistory.get(self.symbol) is None:
                 return
-            # print(self.env.env, self.__class__.__name__,self.symbol)
+            #print(self.env.env, self.__class__.__name__,self.symbol)
             # check algo starttime
             ts = self.data.start
             ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
@@ -264,7 +264,7 @@ class EMA20(Algos):
             ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
             if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
                 return
-            # print(self.env.env, self.__class__.__name__,self.symbol)
+            #print(self.env.env, self.__class__.__name__,self.symbol)
             # write your algo here
             study = Study(self.env.portfolio.stockHistory[self.symbol].resample('5T').first().fillna(method='ffill'))
             study.addEMA(20)

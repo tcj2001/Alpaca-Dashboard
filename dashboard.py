@@ -315,7 +315,7 @@ class StreamingData(QObject):
 
         @conn.on('status')
         async def on_status_messages(conn, channel, data):
-            print(data)
+            #print(data)
             self.sendMessageBR.emit(data.message)
 
         @conn.on('account_updates')
@@ -345,7 +345,7 @@ class StreamingData(QObject):
 
         @conn.on('A')
         async def on_tick_messages(conn, channel, data):
-            # print(self.base_url)
+            #print('tick',self.base_url,data.symbol)
             self.sendMessageTR.emit('{}:{}'.format(data.symbol, data.close))
             self.sendTick.emit(data.symbol, data)
             if data.symbol == self.env.portfolio.selectedSymbol:
@@ -372,7 +372,9 @@ class StreamingData(QObject):
 
         @conn.on('Q')
         async def on_quote_messages(conn, channel, data):
+            #print('quote',self.base_url,data.symbol)
             self.sendQuote.emit(data.symbol, data)
+            pass
 
         # conn.loop.run_until_complete(asyncio.gather(self.conn.subscribe(['account_updates','trade_updates'])))
 
@@ -847,15 +849,22 @@ class TimeFrame(QComboBox):
         pass
 
 
-class pandasModel(QAbstractTableModel):
+class PandasModel(QAbstractTableModel):
 
     def __init__(self, name):
         QAbstractTableModel.__init__(self)
         self._data = df.DataFrame()
         self.name = name
+        timer = QTimer(self)
+        timer.timeout.connect(self.refreshme)
+        timer.start(1000)
+
+    def refreshme(self):
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def loadData(self, data):
         if not data.empty:
+            data.set_index('symbol', drop=False,inplace=True)
             self._data = data
             if self._data is not None:
                 self.layoutAboutToBeChanged.emit()
@@ -870,35 +879,35 @@ class pandasModel(QAbstractTableModel):
     def updateTick(self, symbol, data):
         if not self._data.empty:
             try:
-                if not self._data.loc[self._data['symbol'] == symbol].empty:
-                    row = self._data.loc[self._data['symbol'] == symbol].index[0]
-                    self._data.at[row, 'current_price'] = data.close
+                if not self._data.loc[symbol].empty:
+                    #row = self._data.loc['symbol'].index[0]
+                    self._data.loc[symbol,'current_price'] = data.close
                     if self.name == 'Positions':
                         try:
-                            ap = float(self._data.at[row, 'avg_entry_price'])
-                            qty = int(self._data.at[row, 'qty'])
+                            ap = float(self._data.loc[symbol,'avg_entry_price'])
+                            qty = int(self._data.loc[symbol,'qty'])
                             profit = round((qty * data.close - qty * ap) / abs(qty * ap) * 100, 2)
                         except Exception as e:
                             profit = 0
                             pass
-                        self._data.at[row, 'profit'] = profit
-                    self.layoutAboutToBeChanged.emit()
-                    self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
-                    self.layoutChanged.emit()
+                        self._data.loc[symbol,'profit'] = profit
+                    #self.layoutAboutToBeChanged.emit()
+                    #self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
+                    #self.layoutChanged.emit()
             except Exception as e:
                 pass
 
     def updateQuote(self, symbol, data):
         if not self._data.empty:
             try:
-                if not self._data.loc[self._data['symbol'] == symbol].empty:
-                    row = self._data.loc[self._data['symbol'] == symbol].index[0]
+                if not self._data.loc[symbol].empty:
+                    #row = self._data.loc[self._data['symbol'] == symbol].index[0]
                     if self.name == 'Watchlists':
-                        self._data.at[row, 'bid'] = data.bidprice
-                        self._data.at[row, 'ask'] = data.askprice
-                    self.layoutAboutToBeChanged.emit()
-                    self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
-                    self.layoutChanged.emit()
+                        self._data.loc[symbol,'bid'] = data.bidprice
+                        self._data.loc[symbol,'ask'] = data.askprice
+                    #self.layoutAboutToBeChanged.emit()
+                    #self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
+                    #self.layoutChanged.emit()
             except Exception as e:
                 pass
 
@@ -953,7 +962,8 @@ class WatchListTable(QTableView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.setSortingEnabled(True)
         self.clicked.connect(self.handleClicked)
-        self.model = pandasModel('Watchlists')
+        self.model = PandasModel('Watchlists')
+        #self.model = self.window.env.wlpdm
         self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.customContextMenuRequested.connect(self.showContextMenu)
@@ -1018,7 +1028,8 @@ class Positions(QTableView):
         self.setSelectionMode(QTableView.SingleSelection)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.setSortingEnabled(True)
-        self.model = pandasModel('Positions')
+        self.model = PandasModel('Positions')
+        #self.model = self.window.env.pospdm
         self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.customContextMenuRequested.connect(self.showContextMenu)
@@ -1086,7 +1097,8 @@ class OpenOrder(QTableView):
         self.setSelectionMode(QTableView.SingleSelection)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.showContextMenu)
-        self.model = pandasModel('OpenOrders')
+        self.model = PandasModel('OpenOrders')
+        #self.model = self.window.env.oopdm
         self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.clicked.connect(self.handleClicked)
@@ -1145,7 +1157,8 @@ class ClosedOrder(QTableView):
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
-        self.model = pandasModel('ClosedOrders')
+        self.model = PandasModel('ClosedOrders')
+        #self.model = self.window.env.copdm
         self.setModel(self.model)
         self.selectionModel().selectionChanged.connect(self.handleSelectionChanged)
         self.clicked.connect(self.handleClicked)
@@ -1564,7 +1577,7 @@ class Env():
         self.watchListSelector = WatchListSelector(self)
         self.watchListSelector.moveToThread(self.watchListSelectorThread)
 
-        # watchlist selector
+       # watchlist selector
         self.scannerSelectorThread = QThread()
         self.scannerSelector = ScannerSelector(self)
         self.scannerSelector.moveToThread(self.scannerSelectorThread)
@@ -1633,6 +1646,7 @@ class Env():
         self.portfolio.sendPortFolio()
 
     def run(self):
+
         # start min history thread
         self.minHistoryThread.start()
 
@@ -1652,9 +1666,8 @@ class Env():
         self.portfolioThread.start()
 
         self.ael3 = AsyncEventLooper()
-        self.ael3.add_periodic_task(self.sendportfolio, 60)
+        self.ael3.add_periodic_task(self.sendportfolio, 120)
         self.ael3.start()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
