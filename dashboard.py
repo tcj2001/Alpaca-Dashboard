@@ -1666,7 +1666,7 @@ class Env():
         self.portfolioThread.start()
 
         self.ael3 = AsyncEventLooper()
-        self.ael3.add_periodic_task(self.sendportfolio, 120)
+        self.ael3.add_periodic_task(self.sendportfolio, 60)
         self.ael3.start()
 
 if __name__ == "__main__":
