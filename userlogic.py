@@ -9,7 +9,9 @@ import asyncio
 import threading
 import pickle
 import talib
-
+import requests
+import os
+import json
 
 # region no change needed here
 class AsyncEventLooper():
@@ -402,5 +404,40 @@ class TopEmaCountScanner(Scanners):
             await self.env.dataStream.conn.subscribe(channels)
 
         # print('top20ema  done')
+
+class StocktwitsTrending(Scanners):
+    def __init__(self, env):
+        super().__init__()
+        self.env = env
+        self.milliseconds = 300  # required
+        try:
+            self.url = 'https://api.stocktwits.com/api/2/trending/symbols.json?access_token'+os.getenv('STOCKTWITS_TOKEN')
+        except Exception as e:
+            self.url = ''
+        self.params =[]
+
+    async def loop(self):
+        self.assets = self.env.api.list_assets()
+        self.symbols = [asset.symbol for asset in self.assets if asset.tradable]
+        self.selectedSymbols = []
+
+        resp = requests.get(self.url, params=self.params, timeout=5)
+        data= json.loads(resp.content)['symbols']
+        self.selectedSymbols = [s['symbol'] for s in data]
+
+        # self.sendMessage.emit("Starting high of the day Scanner")
+        tickers = self.env.api.polygon.all_tickers()
+        self.selectedTickers = [ticker for ticker in tickers if (
+                ticker.ticker in self.selectedSymbols
+        )]
+        wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P']] for ticker in
+                 self.selectedTickers]
+        self.wl_df = df.DataFrame.from_records(wlist)
+        if not self.wl_df.empty:
+            self.selectedSymbols = sorted(self.wl_df[0].tolist())
+        if self.selectedSymbols is not None:
+            channels = self.env.dataStream.getChannels(self.selectedSymbols)
+            await self.env.dataStream.conn.subscribe(channels)
+        # print('high of day  done')
 
 # endregion
