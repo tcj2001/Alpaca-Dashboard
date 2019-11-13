@@ -12,7 +12,6 @@ from datetime import timedelta, datetime, time
 from pytz import timezone
 import threading
 import pytz  # $ pip install pytz
-import talib
 import logging
 
 from userlogic import *
@@ -1666,7 +1665,7 @@ class Env():
         self.portfolioThread.start()
 
         self.ael3 = AsyncEventLooper()
-        self.ael3.add_periodic_task(self.sendportfolio, 60)
+        self.ael3.add_periodic_task(self.sendportfolio, 10)
         self.ael3.start()
 
 if __name__ == "__main__":

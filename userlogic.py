@@ -8,6 +8,7 @@ import pandas as df
 import asyncio
 import threading
 import pickle
+import talib
 
 
 # region no change needed here
@@ -337,7 +338,7 @@ class HighOfTheDayScanner(Scanners):
 
 # stocks with top count of close above ema
 class TopEmaCountScanner(Scanners):
-    def __init__(self, env, minutes=100, ema2=20, cnt2=10, atrlength=20, atr=1, min_share_price=10, max_share_price=100,
+    def __init__(self, env, minutes=100, ema2=20, cnt2=25, atrlength=20, atr=1, min_share_price=5, max_share_price=1000,
                  min_last_dv=100000000,
                  tolerance=.99, volume=1000000):
         super().__init__()
@@ -347,6 +348,7 @@ class TopEmaCountScanner(Scanners):
         self.cnt2 = cnt2
         self.atr = atr
         self.atrlength = atrlength
+        self.minutes=minutes
 
         self.min_share_price = min_share_price
         self.max_share_price = max_share_price
@@ -369,17 +371,17 @@ class TopEmaCountScanner(Scanners):
 
         for symbol in symbols:
             try:
-                mHistory = self.api.polygon.historic_agg(size="minute", symbol=symbol, limit=minutes).df
+                mHistory = self.env.api.polygon.historic_agg(size="minute", symbol=symbol, limit=self.minutes).df
                 study = Study(mHistory)
-                study.addEMA(ema2)
+                study.addEMA(self.ema2)
                 studyHistory = study.getHistory()
-                if studyHistory['close'][-1] > studyHistory['EMA' + str(ema2)][-1]:
-                    count = studyHistory[studyHistory['close'] > studyHistory['EMA' + str(ema2)]].shape[0]
+                if studyHistory['close'][-1] > studyHistory['EMA' + str(self.ema2)][-1]:
+                    count = studyHistory[studyHistory['close'] > studyHistory['EMA' + str(self.ema2)]].shape[0]
                     sdf.loc[symbol] = {'count': count}
                 sdf.sort_values(by=['count'], inplace=True, ascending=False)
             except  Exception as e:
                 pass  # print(e)
-        self.symbols = sdf.head(cnt2).index.tolist()
+        self.symbols = sdf.head(self.cnt2).index.tolist()
 
         tickers = self.env.api.polygon.all_tickers()
         self.selectedTickers = [ticker for ticker in tickers if (
