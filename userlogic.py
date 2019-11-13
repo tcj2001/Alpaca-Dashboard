@@ -229,7 +229,7 @@ class FifteenMinuteHigh(Algos):
                     buyqty = 1
                     if self.env.portfolio.buying_power > close * buyqty:
                         self.env.portfolio.stockOrdered[self.symbol] = True
-                        self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo1')
+                        self.env.portfolio.buy(self.symbol, buyqty, close, self.__class__.__name__)
 
             if close <= last3barmin:
                 if qty > 0:
@@ -238,7 +238,7 @@ class FifteenMinuteHigh(Algos):
                             self.env.portfolio.stockFilledAt[self.symbol]._date_repr == datetime.today().astimezone(
                                 timezone('America/New_York')).strftime('%Y-%m-%d')):
                         self.env.portfolio.stockOrdered[self.symbol] = True
-                        self.env.portfolio.sell(self.symbol, 1, close, 'Algo1')
+                        self.env.portfolio.sell(self.symbol, 1, close, self.__class__.__name__)
         except Exception as e:
             pass
 
@@ -280,7 +280,7 @@ class EMA20(Algos):
                     buyqty = 1
                     if self.env.portfolio.buying_power > close * buyqty:
                         self.env.portfolio.stockOrdered[self.symbol] = True
-                        self.env.portfolio.buy(self.symbol, buyqty, close, 'Algo2')
+                        self.env.portfolio.buy(self.symbol, buyqty, close, self.__class__.__name__)
             if close <= ema:
                 if qty > 0:
                     # avoid daytrade
@@ -288,7 +288,7 @@ class EMA20(Algos):
                             self.env.portfolio.stockFilledAt[self.symbol]._date_repr == datetime.today().astimezone(
                                 timezone('America/New_York')).strftime('%Y-%m-%d')):
                         self.env.portfolio.stockOrdered[self.symbol] = True
-                        self.env.portfolio.sell(self.symbol, qty, close, 'Algo2')
+                        self.env.portfolio.sell(self.symbol, qty, close, self.__class__.__name__)
         except Exception as e:
             pass
 
