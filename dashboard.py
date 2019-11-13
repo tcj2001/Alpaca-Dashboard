@@ -1125,7 +1125,7 @@ class OpenOrder(QTableView):
         menu = QMenu(self)
         if len(indexes) > 0:
             self.selectedSymbol = indexes[0].data()
-            self.id = indexes[6].data()
+            self.id = indexes[7].data()
             item_add_act1 = QAction("Cancel {} order".format(self.selectedSymbol), self)
             item_add_act1.triggered.connect(self.add_cb1)
             menu.addAction(item_add_act1)
