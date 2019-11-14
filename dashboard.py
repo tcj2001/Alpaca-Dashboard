@@ -62,7 +62,7 @@ class Portfolio(QObject):
                 existing_positions = self.api.list_positions()
                 opos_df = df.DataFrame([position.__dict__['_raw'] for position in existing_positions])
                 self.stockPosition = dict(zip(opos_df['symbol'], opos_df['qty'].astype('int32')))
-                opos_df['profit'] = round(opos_df['unrealized_plpc'].astype(float) * 100, 2)
+                opos_df['profit%'] = round(opos_df['unrealized_plpc'].astype(float) * 100, 2)
                 self.opos_df = opos_df
                 if self.opos_df is not None and lord_df is not None:
                     self.opos_df = self.opos_df.merge(lord_df, how='left', on='symbol')
@@ -71,11 +71,11 @@ class Portfolio(QObject):
                 # self.positionsLoaded.emit(self.opos_df)
             if symbol != '':
                 opos_df1 = self.opos_df[self.opos_df['symbol'] == symbol]
-                return opos_df1[['symbol', 'qty', 'current_price', 'avg_entry_price', 'profit', 'filled_at']]
+                return opos_df1[['symbol', 'qty', 'current_price', 'avg_entry_price', 'profit%', 'filled_at']]
         except Exception as e:
             self.opos_df = df.DataFrame()
             return self.opos_df
-        return self.opos_df[['symbol', 'qty', 'current_price', 'avg_entry_price', 'profit', 'filled_at']]
+        return self.opos_df[['symbol', 'qty', 'current_price', 'avg_entry_price', 'profit%', 'filled_at']]
 
     def loadOpenOrders(self, symbol=''):
         try:
@@ -432,13 +432,13 @@ class WatchListData(QObject):
             tickers = self.api.polygon.all_tickers()
             if tickers.__len__() != 0:
                 self.selectedTickers = [ticker for ticker in tickers if (ticker.ticker in symbols)]
-                wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P']] for ticker
+                wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P'], round((float(ticker.lastTrade['p'])-float(ticker.day['o']))/float(ticker.day['o'])*100,2), ticker.day['o']] for ticker
                          in self.selectedTickers]
             else:
-                wlist = [[symbol, 0, 0, 0] for symbol in self.symbols]
+                wlist = [[symbol, 0, 0, 0, 0] for symbol in self.symbols]
 
             self.wl_df = df.DataFrame.from_records(wlist)
-            self.wl_df.rename(columns={0: 'symbol', 1: 'bid', 2: 'current_price', 3: 'ask'}, inplace=True)
+            self.wl_df.rename(columns={0: 'symbol', 1: 'bid', 2: 'current_price', 3: 'ask', 4:'%', 5:'open'}, inplace=True)
             if not self.wl_df.empty:
                 self.symbols = self.wl_df['symbol'].tolist()
 
@@ -854,6 +854,8 @@ class PandasModel(QAbstractTableModel):
         QAbstractTableModel.__init__(self)
         self._data = df.DataFrame()
         self.name = name
+        self.column=None
+        self.order=None
         timer = QTimer(self)
         timer.timeout.connect(self.refreshme)
         timer.start(1000)
@@ -865,6 +867,11 @@ class PandasModel(QAbstractTableModel):
         if not data.empty:
             data.set_index('symbol', drop=False,inplace=True)
             self._data = data
+            if self.column is not None:
+                if self.order==Qt.DescendingOrder:
+                    self._data.sort_values(by=[self.column], ascending=False, inplace=True)
+                else:
+                    self._data.sort_values(by=[self.column], ascending=True, inplace=True)
             if self._data is not None:
                 self.layoutAboutToBeChanged.emit()
                 self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
@@ -881,6 +888,14 @@ class PandasModel(QAbstractTableModel):
                 if not self._data.loc[symbol].empty:
                     #row = self._data.loc['symbol'].index[0]
                     self._data.loc[symbol,'current_price'] = data.close
+                    if self.name == 'Watchlists':
+                        try:
+                            op = float(self._data.loc[symbol,'open'])
+                            change = round((data.close - op)/op*100, 2)
+                        except Exception as e:
+                            change = 0
+                            pass
+                        self._data.loc[symbol,'%'] = change
                     if self.name == 'Positions':
                         try:
                             ap = float(self._data.loc[symbol,'avg_entry_price'])
@@ -889,7 +904,7 @@ class PandasModel(QAbstractTableModel):
                         except Exception as e:
                             profit = 0
                             pass
-                        self._data.loc[symbol,'profit'] = profit
+                        self._data.loc[symbol,'profit%'] = profit
                     #self.layoutAboutToBeChanged.emit()
                     #self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
                     #self.layoutChanged.emit()
@@ -925,6 +940,18 @@ class PandasModel(QAbstractTableModel):
             if index.isValid():
                 if role == Qt.DisplayRole:
                     return str(self._data.iloc[index.row(), index.column()])
+                if role == Qt.ForegroundRole:
+                    if self.name == 'Watchlists':
+                        if self._data.iloc[index.row(), 4]>=0:
+                            return QBrush(Qt.darkGreen)
+                        else:
+                            return QBrush(Qt.red)
+                    if self.name == 'Positions':
+                        if self._data.iloc[index.row(), 4] >= 0:
+                            return QBrush(Qt.darkGreen)
+                        else:
+                            return QBrush(Qt.red)
+                    return QBrush(Qt.black)
             return None
         return None
 
@@ -937,11 +964,12 @@ class PandasModel(QAbstractTableModel):
     def sort(self, col, order):
         if not self._data.empty:
             self.emit(SIGNAL("layoutAboutToBeChanged()"))
-            name = self._data.columns[col]
+            self.column = self._data.columns[col]
+            self.order = order
             if order == Qt.DescendingOrder:
-                self._data.sort_values(by=[name], ascending=False, inplace=True)
+                self._data.sort_values(by=[self.column], ascending=False, inplace=True)
             else:
-                self._data.sort_values(by=[name], inplace=True)
+                self._data.sort_values(by=[self.column], inplace=True)
             self.emit(SIGNAL("layoutChanged()"))
 
 
