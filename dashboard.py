@@ -432,8 +432,11 @@ class WatchListData(QObject):
             tickers = self.api.polygon.all_tickers()
             if tickers.__len__() != 0:
                 self.selectedTickers = [ticker for ticker in tickers if (ticker.ticker in symbols)]
-                wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P'], round((float(ticker.lastTrade['p'])-float(ticker.day['o']))/float(ticker.day['o'])*100,2), ticker.day['o']] for ticker
+                try:
+                    wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P'], round((float(ticker.lastTrade['p'])-float(ticker.day['o']))/float(ticker.day['o'])*100,2), ticker.day['o']] for ticker
                          in self.selectedTickers]
+                except Exception as e:
+                    pass
             else:
                 wlist = [[symbol, 0, 0, 0, 0] for symbol in self.symbols]
 
@@ -599,7 +602,7 @@ class MainWindow(QMainWindow):
         # And vertical position the same, but with the height dimensions
         vpos = (screen.height() - mysize.height()) / 2
         # And the move call repositions the window
-        self.move(100, 100)
+        self.move(50, 50)
 
         self.setWindowTitle(self.title)
 
@@ -641,29 +644,10 @@ class EnvWindow(QWidget):
         trow = QWidget()
         trowl = QGridLayout()
 
-        lb51 = QLabel('Symbol')
-        trowl.addWidget(lb51, 0, 0, 1, 1, Qt.AlignRight)
-        self.newSymbol = QLineEdit()
-        self.newSymbol.setMaximumWidth(100)
-        trowl.addWidget(self.newSymbol, 0, 1, 1, 1, Qt.AlignLeft)
-        self.addButton = QPushButton("Add")
-        trowl.addWidget(self.addButton, 0, 2, 1, 1, Qt.AlignLeft)
-        self.addButton.clicked.connect(self.addSymbol)
-
-        lb1 = QLabel('WatchLists')
-        self.watchListcombo = WatchListCombo()
-        trowl.addWidget(lb1, 0, 3, 1, 1, Qt.AlignRight)
-        trowl.addWidget(self.watchListcombo, 0, 4, 1, 1, Qt.AlignLeft)
-
-        lb2 = QLabel('Scanners')
-        self.scannercombo = ScannerCombo()
-        trowl.addWidget(lb2, 0, 5, 1, 1, Qt.AlignRight)
-        trowl.addWidget(self.scannercombo, 0, 6, 1, 1, Qt.AlignLeft)
-
         lb3 = QLabel('Algo')
         self.algoCombo = AlgoCombo()
-        trowl.addWidget(lb3, 0, 7, 1, 1, Qt.AlignRight)
-        trowl.addWidget(self.algoCombo, 0, 8, 1, 1, Qt.AlignLeft)
+        trowl.addWidget(lb3, 0, 0, 1, 1, Qt.AlignLeft)
+        trowl.addWidget(self.algoCombo, 0, 1, 1, 1, Qt.AlignLeft)
 
         trow.setLayout(trowl)
         mg.addWidget(trow, 0, 0, 1, 1)
@@ -671,51 +655,87 @@ class EnvWindow(QWidget):
 
         hs = QSplitter(Qt.Horizontal)
         hs.setStyleSheet("QSplitter::handle { background-color: lightGray; }")
-        mg.addWidget(hs, 2, 0, 1, 9)
+        mg.addWidget(hs, 1, 0, 1, 2)
 
         # region middle left
-        vs = QSplitter(Qt.Vertical)
-        vs.setStyleSheet("QSplitter::handle { background-color: lightGray; }")
+        tabs = QTabWidget()
 
+        tab1 = QWidget()
+        layout1 = QGridLayout()
+        tab1.setLayout(layout1)
+
+        tab2 = QWidget()
+        layout2 = QGridLayout()
+        tab2.setLayout(layout2)
+
+        tab3 = QWidget()
+        layout3 = QGridLayout()
+        tab3.setLayout(layout3)
+
+        tab4 = QWidget()
+        layout4 = QGridLayout()
+        tab4.setLayout(layout4)
+
+        tabs.addTab(tab1, 'Watchlist')
+        tabs.addTab(tab2, 'Positions')
+        tabs.addTab(tab3, 'Open Orders')
+        tabs.addTab(tab4, 'Closed Orders')
+
+        # watchlist tab
         lw1 = QWidget()
         lg1 = QGridLayout()
+
+        lb51 = QLabel('Symbol')
+        lg1.addWidget(lb51, 0, 0, 1, 1, Qt.AlignRight)
+        self.newSymbol = QLineEdit()
+        self.newSymbol.setMaximumWidth(100)
+        lg1.addWidget(self.newSymbol, 0, 1, 1, 1, Qt.AlignLeft)
+        self.addButton = QPushButton("Add")
+        lg1.addWidget(self.addButton, 0, 2, 1, 1, Qt.AlignLeft)
+        self.addButton.clicked.connect(self.addSymbol)
+
+        lb1 = QLabel('WatchLists')
+        self.watchListcombo = WatchListCombo()
+        lg1.addWidget(lb1, 0, 3, 1, 1, Qt.AlignRight)
+        lg1.addWidget(self.watchListcombo, 0, 4, 1, 1, Qt.AlignLeft)
+
+        lb2 = QLabel('Scanners')
+        self.scannercombo = ScannerCombo()
+        lg1.addWidget(lb2, 0, 5, 1, 1, Qt.AlignRight)
+        lg1.addWidget(self.scannercombo, 0, 6, 1, 1, Qt.AlignLeft)
+
         self.watchListTable = WatchListTable(self)
-        lg1.addWidget(self.watchListTable, 1, 0, 1, 1)
+        lg1.addWidget(self.watchListTable, 1, 0, 1, 7)
         lw1.setLayout(lg1)
-        vs.addWidget(lw1)
+        layout1.addWidget(lw1)
 
         lw2 = QWidget()
         lg2 = QGridLayout()
-        lb2 = QLabel('Positions')
         self.openPositions = Positions(self)
-        lg2.addWidget(lb2, 0, 0, 1, 1)
-        lg2.addWidget(self.openPositions, 1, 0, 1, 1)
+        lg2.addWidget(self.openPositions, 0, 0, 1, 1)
         lw2.setLayout(lg2)
-        vs.addWidget(lw2)
+        layout2.addWidget(lw2)
 
         lw4 = QWidget()
         lg4 = QGridLayout()
-        lb4 = QLabel('Open Orders')
         self.openOrders = OpenOrder(self)
-        lg4.addWidget(lb4, 0, 0, 1, 1)
-        lg4.addWidget(self.openOrders, 1, 0, 1, 1)
+        lg4.addWidget(self.openOrders, 0, 0, 1, 1)
         lw4.setLayout(lg4)
-        vs.addWidget(lw4)
+        layout3.addWidget(lw4)
 
         lw3 = QWidget()
         lg3 = QGridLayout()
-        lb3 = QLabel('Closed Orders')
         self.closedOrders = ClosedOrder(self)
-        lg3.addWidget(lb3, 2, 0, 1, 1)
-        lg3.addWidget(self.closedOrders, 3, 0, 1, 1)
+        lg3.addWidget(self.closedOrders, 0, 0, 1, 1)
         lw3.setLayout(lg3)
-        vs.addWidget(lw3)
-        vs.setMinimumWidth(900)
+        layout4.addWidget(lw3)
+
+        tabs.setMinimumWidth(900)
+        tabs.setMinimumHeight(700)
+        hs.addWidget(tabs)
         # endregion
 
         # region middle right
-        hs.addWidget(vs)
-
         rw = QWidget()
         rg = QGridLayout()
 
@@ -736,13 +756,17 @@ class EnvWindow(QWidget):
         self.statusLineBL = QLabel('')
         self.statusLineBR = QLabel('')
         self.statusLineTL.setWordWrap(True)
+        self.statusLineTL.setMinimumWidth(900)
         self.statusLineTR.setWordWrap(True)
+        self.statusLineTR.setMinimumWidth(500)
         self.statusLineBL.setWordWrap(True)
+        self.statusLineBL.setMinimumWidth(900)
         self.statusLineBR.setWordWrap(True)
-        mg.addWidget(self.statusLineTL, 3, 0, 1, 1)
-        mg.addWidget(self.statusLineTR, 3, 1, 1, 8)
-        mg.addWidget(self.statusLineBL, 4, 0, 1, 1)
-        mg.addWidget(self.statusLineBR, 4, 1, 1, 8)
+        self.statusLineBR.setMinimumWidth(500)
+        mg.addWidget(self.statusLineTL, 2, 0, 1, 1, Qt.AlignLeft)
+        mg.addWidget(self.statusLineTR, 2, 1, 1, 1,Qt.AlignRight)
+        mg.addWidget(self.statusLineBL, 3, 0, 1, 1, Qt.AlignLeft)
+        mg.addWidget(self.statusLineBR, 3, 1, 1, 1,Qt.AlignRight)
         # endregion
 
         self.statusLineBL.setText("BuyingPower: {}".format(self.buyingPower))
@@ -847,6 +871,92 @@ class TimeFrame(QComboBox):
         self.requestStockData.emit(self.symbol, self.currentText())
         pass
 
+class PandasModelLoad(QObject):
+
+    doneSignal = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+
+    def setData(self,name,data,column,order):
+        self.name=name
+        self.column=column
+        self.order=order
+        self._data=data
+
+    def run(self):
+        if not self._data.empty:
+            self._data.set_index('symbol', drop=False,inplace=True)
+            if self.column is not None:
+                if self.order==Qt.DescendingOrder:
+                    self._data.sort_values(by=[self.column], ascending=False, inplace=True)
+                else:
+                    self._data.sort_values(by=[self.column], ascending=True, inplace=True)
+        else:
+            self._data = df.DataFrame()
+        self.doneSignal.emit(self._data)
+
+class PandasModelQuote(QObject):
+
+    doneSignal = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+
+    def setData(self,name,_data,data):
+        self.name=name
+        self._data=_data
+        self.data=data
+
+    def run(self):
+        if not self._data.empty:
+            try:
+                if not self._data.loc[self.data.symbol].empty:
+                    if self.name == 'Watchlists':
+                        self._data.loc[self.data.symbol,'bid'] = self.data.bidprice
+                        self._data.loc[self.data.symbol,'ask'] = self.data.askprice
+            except Exception as e:
+                pass
+        self.doneSignal.emit(self._data)
+
+class PandasModelTick(QObject):
+
+    doneSignal = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+
+    def setData(self,name,_data,data):
+        self.name=name
+        self._data=_data
+        self.data=data
+
+    def run(self):
+        if not self._data.empty:
+            try:
+                if not self._data.loc[self.data.symbol].empty:
+                    self._data.loc[self.data.symbol,'current_price'] = self.data.close
+                    if self.name == 'Watchlists':
+                        try:
+                            op = float(self._data.loc[self.data.symbol,'open'])
+                            change = round((self.data.close - op)/op*100, 2)
+                        except Exception as e:
+                            change = 0
+                            pass
+                        self._data.loc[self.data.symbol,'%'] = change
+                    if self.name == 'Positions':
+                        try:
+                            ap = float(self._data.loc[self.data.symbol,'avg_entry_price'])
+                            qty = int(self._data.loc[self.data.symbol,'qty'])
+                            profit = round((qty * self.data.close - qty * ap) / abs(qty * ap) * 100, 2)
+                        except Exception as e:
+                            profit = 0
+                            pass
+                        self._data.loc[self.data.symbol,'profit%'] = profit
+            except Exception as e:
+                pass
+
+        self.doneSignal.emit(self._data)
 
 class PandasModel(QAbstractTableModel):
 
@@ -856,74 +966,54 @@ class PandasModel(QAbstractTableModel):
         self.name = name
         self.column=None
         self.order=None
+
         timer = QTimer(self)
         timer.timeout.connect(self.refreshme)
         timer.start(1000)
 
-    def refreshme(self):
-        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+        self.pml = PandasModelLoad()
+        self.pml.doneSignal.connect(self.setData)
+        self.pmlThread = QThread(self)
+        self.pml.moveToThread(self.pmlThread)
+        self.pmlThread.start()
+
+        self.pmt = PandasModelTick()
+        self.pmt.doneSignal.connect(self.setData2)
+        self.pmtThread = QThread(self)
+        self.pmt.moveToThread(self.pmtThread)
+        self.pmtThread.start()
+
+        self.pmq = PandasModelQuote()
+        self.pmq.doneSignal.connect(self.setData2)
+        self.pmqThread = QThread(self)
+        self.pmq.moveToThread(self.pmqThread)
+        self.pmqThread.start()
+
 
     def loadData(self, data):
-        if not data.empty:
-            data.set_index('symbol', drop=False,inplace=True)
-            self._data = data
-            if self.column is not None:
-                if self.order==Qt.DescendingOrder:
-                    self._data.sort_values(by=[self.column], ascending=False, inplace=True)
-                else:
-                    self._data.sort_values(by=[self.column], ascending=True, inplace=True)
-            if self._data is not None:
-                self.layoutAboutToBeChanged.emit()
-                self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
-                self.layoutChanged.emit()
-        else:
-            self._data = df.DataFrame()
-            self.layoutAboutToBeChanged.emit()
-            self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
-            self.layoutChanged.emit()
+        self.pml.setData(self.name,data,self.column,self.order)
+        self.pml.run()
 
     def updateTick(self, symbol, data):
-        if not self._data.empty:
-            try:
-                if not self._data.loc[symbol].empty:
-                    #row = self._data.loc['symbol'].index[0]
-                    self._data.loc[symbol,'current_price'] = data.close
-                    if self.name == 'Watchlists':
-                        try:
-                            op = float(self._data.loc[symbol,'open'])
-                            change = round((data.close - op)/op*100, 2)
-                        except Exception as e:
-                            change = 0
-                            pass
-                        self._data.loc[symbol,'%'] = change
-                    if self.name == 'Positions':
-                        try:
-                            ap = float(self._data.loc[symbol,'avg_entry_price'])
-                            qty = int(self._data.loc[symbol,'qty'])
-                            profit = round((qty * data.close - qty * ap) / abs(qty * ap) * 100, 2)
-                        except Exception as e:
-                            profit = 0
-                            pass
-                        self._data.loc[symbol,'profit%'] = profit
-                    #self.layoutAboutToBeChanged.emit()
-                    #self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
-                    #self.layoutChanged.emit()
-            except Exception as e:
-                pass
+        self.pmt.setData(self.name,self._data, data)
+        self.pmt.run()
 
     def updateQuote(self, symbol, data):
-        if not self._data.empty:
-            try:
-                if not self._data.loc[symbol].empty:
-                    #row = self._data.loc[self._data['symbol'] == symbol].index[0]
-                    if self.name == 'Watchlists':
-                        self._data.loc[symbol,'bid'] = data.bidprice
-                        self._data.loc[symbol,'ask'] = data.askprice
-                    #self.layoutAboutToBeChanged.emit()
-                    #self.dataChanged.emit(self.createIndex(row, 0), self.createIndex(row, self.columnCount(0)))
-                    #self.layoutChanged.emit()
-            except Exception as e:
-                pass
+        self.pmq.setData(self.name,self._data, data)
+        self.pmq.run()
+
+    def setData(self, data):
+        self._data = data
+        self.layoutAboutToBeChanged.emit()
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+        self.layoutChanged.emit()
+
+    def setData2(self, data):
+        self._data = data
+        #self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+
+    def refreshme(self):
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def rowCount(self, parent=None):
         if not self._data.empty:
@@ -1276,6 +1366,13 @@ class ChartView(QtCharts.QChartView):
         # self.newChart=None
         self.newChart = Chart()
         self.setChart(self.newChart)
+        self.symbol=None
+        self.data=None
+
+        timer = QTimer(self)
+        timer.timeout.connect(self.updateChart)
+        timer.start(1000)
+
 
     def paintEvent(self, event):
         if self.chart().title() != "":
@@ -1349,12 +1446,15 @@ class ChartView(QtCharts.QChartView):
         self.viewport().repaint()
 
     def updateTick(self, symbol, data):
-        if self.newChart is not None:
-            if self.newChart.symbol == symbol:
-                self.newChart.updateCandleStick(symbol, data.open, data.high, data.low, data.close, data.start,
-                                                self.window.timeFrame.currentText())
-                # self.viewport().repaint()
+        self.symbol=symbol
+        self.data=data
 
+    def updateChart(self):
+        if self.newChart is not None:
+            if self.newChart.symbol == self.symbol:
+                if self.data is not None:
+                    self.newChart.updateCandleStick(self.symbol, self.data.open, self.data.high, self.data.low, self.data.close, self.data.start,
+                                                    self.window.timeFrame.currentText())
 
 # display chart
 class Chart(QtCharts.QChart):
@@ -1638,10 +1738,10 @@ class Env():
             self.window.closedOrders.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
             self.window.addSymbolToWatchlist.connect(self.portfolio.setSelectedSymbol)
 
-            self.dataStream.sendAccountData.connect(self.window.displayAccountData)
-            self.dataStream.sendMessageTL.connect(self.window.statusMessageTL)
-            self.dataStream.sendMessageTR.connect(self.window.statusMessageTR)
-            self.dataStream.sendMessageBR.connect(self.window.statusMessageBR)
+            self.dataStream.sendAccountData.connect(self.window.displayAccountData,Qt.QueuedConnection)
+            self.dataStream.sendMessageTL.connect(self.window.statusMessageTL,Qt.QueuedConnection)
+            self.dataStream.sendMessageTR.connect(self.window.statusMessageTR,Qt.QueuedConnection)
+            self.dataStream.sendMessageBR.connect(self.window.statusMessageBR,Qt.QueuedConnection)
 
             self.dataStream.sendQuote.connect(self.window.watchListTable.model.updateQuote)
             self.dataStream.sendTick.connect(self.window.watchListTable.model.updateTick)
