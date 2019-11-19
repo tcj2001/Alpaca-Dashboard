@@ -283,8 +283,7 @@ class Portfolio(QObject):
         self.positionsLoaded.emit(self.opos_df)
         self.openOrderLoaded.emit(self.oord_df)
         self.closedOrderLoaded.emit(self.cord_df)
-        self.sendBuyingPower.emit(float(self.account.buying_power),
-                                  float(self.account.last_equity) - float(self.account.equity))
+        self.sendBuyingPower.emit(float(self.account.buying_power), float(self.account.equity))
 
 
 # handles polygon data
@@ -319,7 +318,7 @@ class StreamingData(QObject):
 
         @conn.on('account_updates')
         async def on_account_updates(conn, channel, data):
-            self.sendAccountData.emit(float(data['buying_power']), float(data['last_equity']) - float(data['equity']))
+            self.sendAccountData.emit(float(data['buying_power']), float(data['equity']))
             print(data)
 
         @conn.on('trade_updates')
@@ -646,7 +645,7 @@ class EnvWindow(QWidget):
 
         lb3 = QLabel('Algo')
         self.algoCombo = AlgoCombo()
-        trowl.addWidget(lb3, 0, 0, 1, 1, Qt.AlignLeft)
+        trowl.addWidget(lb3, 0, 0, 1, 1, Qt.AlignRight)
         trowl.addWidget(self.algoCombo, 0, 1, 1, 1, Qt.AlignLeft)
 
         trow.setLayout(trowl)
@@ -780,7 +779,7 @@ class EnvWindow(QWidget):
         self.buyingPower = bp
         self.todaysProfit = pf
         self.statusLineBL.setText(
-            "BuyingPower: {} .....  Todays Profit: {}".format(self.buyingPower, self.todaysProfit))
+            "BuyingPower: {} .....  Equity: {}".format(self.buyingPower, self.todaysProfit))
 
     def statusMessageTL(self, msg):
         self.statusLineTL.setText(msg)
@@ -1013,6 +1012,7 @@ class PandasModel(QAbstractTableModel):
         #self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def refreshme(self):
+        QApplication.processEvents()
         self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def rowCount(self, parent=None):
