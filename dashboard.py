@@ -1012,7 +1012,6 @@ class PandasModel(QAbstractTableModel):
         #self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def refreshme(self):
-        QApplication.processEvents()
         self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
 
     def rowCount(self, parent=None):
@@ -1680,7 +1679,7 @@ class Env():
             obj = getattr(__import__('userlogic'), sc.__name__)(self)
             self.algosubclasses.append(obj)
             obj.moveToThread(qt)
-            qt.start()
+            qt.start(QThread.NormalPriority)
 
         # __module__instantiate watchlists class from watchlist pickles
         watchlistpickles = [x for x in os.listdir('./' + self.env) if (x.startswith('watchlist_'))]
@@ -1738,10 +1737,10 @@ class Env():
             self.window.closedOrders.selecetedSymbolSignal.connect(self.portfolio.setSelectedSymbol)
             self.window.addSymbolToWatchlist.connect(self.portfolio.setSelectedSymbol)
 
-            self.dataStream.sendAccountData.connect(self.window.displayAccountData,Qt.QueuedConnection)
-            self.dataStream.sendMessageTL.connect(self.window.statusMessageTL,Qt.QueuedConnection)
-            self.dataStream.sendMessageTR.connect(self.window.statusMessageTR,Qt.QueuedConnection)
-            self.dataStream.sendMessageBR.connect(self.window.statusMessageBR,Qt.QueuedConnection)
+            self.dataStream.sendAccountData.connect(self.window.displayAccountData)
+            self.dataStream.sendMessageTL.connect(self.window.statusMessageTL)
+            self.dataStream.sendMessageTR.connect(self.window.statusMessageTR)
+            self.dataStream.sendMessageBR.connect(self.window.statusMessageBR)
 
             self.dataStream.sendQuote.connect(self.window.watchListTable.model.updateQuote)
             self.dataStream.sendTick.connect(self.window.watchListTable.model.updateTick)
@@ -1775,14 +1774,14 @@ class Env():
     def run(self):
 
         # start min history thread
-        self.minHistoryThread.start()
+        self.minHistoryThread.start(QThread.LowestPriority)
 
         # load watch lists in GUI
-        self.watchListSelectorThread.start()
+        self.watchListSelectorThread.start(QThread.LowestPriority)
         self.watchListSelector.sendWatchListNames('')
 
         # load scanner lists in GUI
-        self.scannerSelectorThread.start()
+        self.scannerSelectorThread.start(QThread.LowestPriority)
         self.scannerSelector.sendScannerNames()
 
         # load algo lists in GUI
@@ -1790,7 +1789,7 @@ class Env():
 
         # Send positions, open orders, closed order to GUI
         self.portfolioThread.started.connect(self.portfolio.sendPortFolio)
-        self.portfolioThread.start()
+        self.portfolioThread.start(QThread.NormalPriority)
 
         self.ael3 = AsyncEventLooper()
         self.ael3.add_periodic_task(self.sendportfolio, 10)

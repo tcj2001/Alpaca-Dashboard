@@ -202,7 +202,6 @@ class FifteenMinuteHigh(Algos):
 
     def runAlgo(self):
         try:
-            QApplication.processEvents()
             # return if algo is not checked
             if not self.env.algoSelector.algoLists[self.__class__.__name__]:
                 return
@@ -254,7 +253,6 @@ class EMA20(Algos):
 
     def runAlgo(self):
         try:
-            QApplication.processEvents()
             # return if algo is not checked
             if not self.env.algoSelector.algoLists[self.__class__.__name__]:
                 return
