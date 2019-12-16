@@ -3,6 +3,7 @@
 ######################################################################################################
 from datetime import timedelta, datetime, time
 from pytz import timezone
+import pytz
 from PySide2.QtCore import QObject
 import pandas as df
 import asyncio
@@ -199,6 +200,9 @@ class FifteenMinuteHigh(Algos):
     def __init__(self, env):
         super().__init__()
         self.env = env
+        self.id='AboveFifteenMinuteHigh'
+        self.scanner=None
+        self.risk=0.01
 
     def runAlgo(self):
         try:
@@ -211,29 +215,36 @@ class FifteenMinuteHigh(Algos):
             # not enough history
             if self.env.portfolio.stockHistory.get(self.symbol) is None:
                 return
-            #print(self.env.env, self.__class__.__name__,self.symbol)
-            # check algo starttime
             ts = self.data.start
             ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
-            if ts < ts.replace(hour=9, minute=45, second=0, microsecond=0):
+            if ts < ts.replace(hour=10, minute=15, second=0, microsecond=0):
                 return
-            # write your algo here
-            study = Study(self.env.portfolio.stockHistory[self.symbol].resample('15T').first().fillna(method='ffill'))
-            studyHistory = study.getHistory()
-            close = studyHistory['close'][-1]
-            last3barmax = studyHistory['high'].tail(2).max()
-            last3barmin = studyHistory['high'].tail(2).min()
+            if self.scanner is None:
+                for obj in self.env.scannersubclasses:
+                    if obj.__class__.__name__ == self.id:
+                        self.scanner=obj
+                        break
+            fromdate = datetime.date(datetime.today() + timedelta(days=0))
+            todate = datetime.date(datetime.today() + timedelta(days=1))
+            mHistory = self.env.portfolio.getHistory(self.data.symbol, 15, 'minute', fromdate, todate)
+            opn = mHistory.loc[fromdate.strftime('%Y-%m-%d') + ' 09:30:00-05:00'].open
+            fmh = mHistory.loc[fromdate.strftime('%Y-%m-%d') + ' 09:45:00-05:00'].high
+            fml = mHistory.loc[fromdate.strftime('%Y-%m-%d') + ' 09:45:00-05:00'].low
+            close = self.data.close
             qty = 0
             if self.env.portfolio.stockPosition.get(self.symbol) is not None:
                 qty = self.env.portfolio.stockPosition.get(self.symbol)
-            if close >= last3barmax:
-                if qty <= 0:
-                    buyqty = 1
-                    if self.env.portfolio.buying_power > close * buyqty:
-                        self.env.portfolio.stockOrdered[self.symbol] = True
-                        self.env.portfolio.buy(self.symbol, buyqty, close, self.__class__.__name__)
+            if self.data.symbol in self.scanner.getSymbols():
+                if close >= fmh:
+                    if qty <= 0:
+                        buyqty = float(self.env.api.get_account().buying_power) * self.risk // self.data.close
+                        if buyqty==0:
+                            buyqty = 1
+                        if self.env.portfolio.buying_power > close * buyqty:
+                            self.env.portfolio.stockOrdered[self.symbol] = True
+                            self.env.portfolio.buy(self.symbol, buyqty, close, self.__class__.__name__)
 
-            if close <= last3barmin:
+            if close <= fml:
                 if qty > 0:
                     # avoid daytrade
                     if not (self.env.portfolio.stockFilledAt[self.symbol] is df.NaT or
@@ -404,6 +415,53 @@ class TopEmaCountScanner(Scanners):
             await self.env.dataStream.conn.subscribe(channels)
 
         # print('top20ema  done')
+
+# stocks with top count of close above ema
+class AboveFifteenMinuteHigh(Scanners):
+    def __init__(self, env):
+        super().__init__()
+        self.milliseconds = 400  # required
+        self.env = env
+        self.symbols=[]
+
+    async def loop(self):
+        # print('top20ema  starting')
+        symbols = ["AMD", "WFC", "SQ", "ABBV", "FB", "AAPL", "GS", "C", "KO", "WDC", "NKE", "WMT", "TGT", "CSCO",
+                   "COST", "ORLY", "LABD", "V", "MA", "BABA", "JD", "WB", "DIS", "LK", "TWLO", "CSX", "Z", "BIDU",
+                   "MCD", "DVN", "ACB", "GILD", "QQQ", "SBUX", "WBA", "STX", "AMZN", "FAST", "NFLX", "CELG", "AMAT",
+                   "UPS", "FDX", "DELL", "SNAP", "TWTR", "DWT", "JBLU", "AKS", "CMG", "DB", "GLD", "LABU", "DGAZ",
+                   "UGAZ", "UAL", "NUGT", "WYNN", "NTES", "SIRI", "AMGN", "MAR", "ROST", "DLTR", "LULU", "AEM", "UWT",
+                   "H", "FAS", "LVS", "JNPR", "PAYC", "CRON", "DD", "URI", "MOS", "CLDR", "WYND", "RH", "EA", "NOK",
+                   "HTZ", "WSM", "SHOP", "OKTA", "IMMU", "CRWD", "JNUG", "IBM", "WORK", "ADI", "DHI", "KB", "TOL",
+                   "PEP", "BYND", "CLX", "MU", "OSTK", "ROKU", "ULTA"]
+
+        fromdate = datetime.date(datetime.today() + timedelta(days=0))
+        todate = datetime.date(datetime.today() + timedelta(days=1))
+        for symbol in symbols:
+            try:
+                mHistory = self.env.portfolio.getHistory(symbol, 15, 'minute', fromdate, todate)
+                opn=mHistory.loc[fromdate.strftime('%Y-%m-%d')+ ' 09:30:00-05:00'].open
+                fmh=mHistory.loc[fromdate.strftime('%Y-%m-%d')+ ' 09:45:00-05:00'].high
+                if mHistory.close[-1]>fmh and mHistory.close[-1]>opn:
+                    self.symbols.append(symbol)
+            except  Exception as e:
+                pass  # print(e)
+
+        tickers = self.env.api.polygon.all_tickers()
+        self.selectedTickers = [ticker for ticker in tickers if (
+                ticker.ticker in self.symbols
+        )]
+        wlist = [[ticker.ticker, ticker.lastQuote['p'], ticker.lastTrade['p'], ticker.lastQuote['P']] for ticker in
+                 self.selectedTickers]
+        self.wl_df = df.DataFrame.from_records(wlist)
+        if not self.wl_df.empty:
+            self.selectedSymbols = sorted(self.wl_df[0].tolist())
+        if self.selectedSymbols is not None:
+            channels = self.env.dataStream.getChannels(self.selectedSymbols)
+            await self.env.dataStream.conn.subscribe(channels)
+
+        # print('top20ema  done')
+
 
 class StocktwitsTrending(Scanners):
     def __init__(self, env):

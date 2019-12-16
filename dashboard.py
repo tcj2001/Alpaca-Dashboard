@@ -44,6 +44,7 @@ class Portfolio(QObject):
         self.stockFilledAt = {}
         self.buying_power = 0
         self.selectedSymbol = None
+        #self.sendPortFolio()
 
     def snapshot(self, symbol):
         ss = self.api.polygon.snapshot(symbol)
@@ -886,6 +887,7 @@ class PandasModelLoad(QObject):
     def run(self):
         if not self._data.empty:
             self._data.set_index('symbol', drop=False,inplace=True)
+            self._data.rename(index={'symbol':'sym'}, inplace=True)
             if self.column is not None:
                 if self.order==Qt.DescendingOrder:
                     self._data.sort_values(by=[self.column], ascending=False, inplace=True)
